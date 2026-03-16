@@ -16,13 +16,18 @@ mem.prof
 .DS_Store
 Thumbs.db
 
-# IDE
+# IDE / AI editor configs
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
 .envrc
+.claude/
+.codex/
+.cursor/
+.gemini/
+.opencode/
 
 # Polycode runtime data (user-specific, not project files)
 model_metadata.json
