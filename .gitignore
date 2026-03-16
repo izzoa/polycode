@@ -1,20 +1,36 @@
 # Binary
 /polycode
+/polycode.exe
 /dist/
+
+# Go
+vendor/
+*.test
+*.out
+coverage.html
+coverage.txt
+cpu.prof
+mem.prof
 
 # OS
 .DS_Store
+Thumbs.db
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+*~
+.envrc
 
-# Go
-vendor/
-
-# Polycode runtime
+# Polycode runtime data (user-specific, not project files)
 model_metadata.json
 credentials.json
 credentials.enc
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+*.key
