@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 120" width="720" height="120">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#00afff;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#5f87ff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#af5fff;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="720" height="120" rx="8" fill="#1a1b26"/>
+  <!-- P -->
+  <rect x="20" y="15" width="10" height="90" fill="url(#grad)"/>
+  <rect x="30" y="15" width="40" height="10" fill="url(#grad)"/>
+  <rect x="70" y="15" width="10" height="40" fill="url(#grad)"/>
+  <rect x="30" y="45" width="40" height="10" fill="url(#grad)"/>
+  <!-- O -->
+  <rect x="100" y="15" width="10" height="90" fill="url(#grad)"/>
+  <rect x="110" y="15" width="40" height="10" fill="url(#grad)"/>
+  <rect x="150" y="15" width="10" height="90" fill="url(#grad)"/>
+  <rect x="110" y="95" width="40" height="10" fill="url(#grad)"/>
+  <!-- L -->
+  <rect x="180" y="15" width="10" height="90" fill="url(#grad)"/>
+  <rect x="190" y="95" width="50" height="10" fill="url(#grad)"/>
+  <!-- Y -->
+  <rect x="260" y="15" width="10" height="40" fill="url(#grad)"/>
+  <rect x="310" y="15" width="10" height="40" fill="url(#grad)"/>
+  <rect x="270" y="45" width="40" height="10" fill="url(#grad)"/>
+  <rect x="280" y="55" width="10" height="50" fill="url(#grad)"/>
+  <!-- C -->
+  <rect x="340" y="15" width="10" height="90" fill="url(#grad)"/>
+  <rect x="350" y="15" width="50" height="10" fill="url(#grad)"/>
+  <rect x="350" y="95" width="50" height="10" fill="url(#grad)"/>
+  <!-- O -->
+  <rect x="420" y="15" width="10" height="90" fill="url(#grad)"/>
+  <rect x="430" y="15" width="40" height="10" fill="url(#grad)"/>
+  <rect x="470" y="15" width="10" height="90" fill="url(#grad)"/>
+  <rect x="430" y="95" width="40" height="10" fill="url(#grad)"/>
+  <!-- D -->
+  <rect x="500" y="15" width="10" height="90" fill="url(#grad)"/>
+  <rect x="510" y="15" width="40" height="10" fill="url(#grad)"/>
+  <rect x="550" y="25" width="10" height="70" fill="url(#grad)"/>
+  <rect x="510" y="95" width="40" height="10" fill="url(#grad)"/>
+  <!-- E -->
+  <rect x="580" y="15" width="10" height="90" fill="url(#grad)"/>
+  <rect x="590" y="15" width="50" height="10" fill="url(#grad)"/>
+  <rect x="590" y="50" width="40" height="10" fill="url(#grad)"/>
+  <rect x="590" y="95" width="50" height="10" fill="url(#grad)"/>
+</svg>
