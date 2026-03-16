@@ -39,10 +39,17 @@ type TokenUpdateMsg struct {
 }
 
 // ConfirmActionMsg asks the user to confirm an action.
+// The ResponseCh is used to synchronously communicate the user's decision
+// back to the goroutine that requested confirmation.
 type ConfirmActionMsg struct {
 	Description string
-	OnConfirm   func()
-	OnReject    func()
+	ResponseCh  chan bool
+}
+
+// ToolCallMsg notifies the TUI that a tool is being executed.
+type ToolCallMsg struct {
+	ToolName    string
+	Description string // e.g., "Reading main.go" or "Running `go test`"
 }
 
 // Update implements tea.Model.
@@ -54,7 +61,47 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.showSplash = false
 		return m, nil
 
+	case ConfirmActionMsg:
+		m.confirmPending = true
+		m.confirmDescription = msg.Description
+		m.confirmResponseCh = msg.ResponseCh
+		return m, nil
+
+	case ToolCallMsg:
+		m.toolStatus = msg.Description
+		m.consensusContent.WriteString("\n" + msg.Description + "\n")
+		m.consensusView.SetContent(m.consensusContent.String())
+		m.consensusView.GotoBottom()
+		return m, nil
+
 	case tea.KeyMsg:
+		// Confirmation prompt takes priority over everything except quit
+		if m.confirmPending {
+			switch msg.String() {
+			case "ctrl+c":
+				if m.confirmResponseCh != nil {
+					m.confirmResponseCh <- false
+				}
+				m.confirmPending = false
+				return m, tea.Quit
+			case "y", "Y":
+				if m.confirmResponseCh != nil {
+					m.confirmResponseCh <- true
+				}
+				m.confirmPending = false
+				m.confirmDescription = ""
+				return m, nil
+			case "n", "N", "esc":
+				if m.confirmResponseCh != nil {
+					m.confirmResponseCh <- false
+				}
+				m.confirmPending = false
+				m.confirmDescription = ""
+				return m, nil
+			}
+			return m, nil // swallow all other keys during confirm
+		}
+
 		// Any keypress dismisses splash (except ctrl+c which quits)
 		if m.showSplash && msg.String() != "ctrl+c" {
 			m.showSplash = false

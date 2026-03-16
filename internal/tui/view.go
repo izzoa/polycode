@@ -57,10 +57,30 @@ func (m Model) renderChat() string {
 		sections = append(sections, m.renderProviderPanels())
 	}
 
-	// Input area (always visible)
-	sections = append(sections, m.renderInput())
+	// Confirmation prompt (overlays input area when pending)
+	if m.confirmPending {
+		sections = append(sections, m.renderConfirmPrompt())
+	} else {
+		// Input area (always visible when not confirming)
+		sections = append(sections, m.renderInput())
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+}
+
+// renderConfirmPrompt renders the action confirmation prompt.
+func (m Model) renderConfirmPrompt() string {
+	warnStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("214")).
+		Padding(0, 1).
+		Width(m.width - 4)
+
+	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214")).Render("Confirm Action")
+	desc := m.confirmDescription
+	hint := lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("  y: approve  n: reject  Esc: cancel")
+
+	return warnStyle.Render(fmt.Sprintf("%s\n\n%s\n\n%s", title, desc, hint))
 }
 
 // renderHelp renders the help overlay showing all keyboard shortcuts.

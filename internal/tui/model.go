@@ -98,6 +98,14 @@ type Model struct {
 	showSplash bool
 	version    string
 
+	// Action confirmation
+	confirmPending     bool
+	confirmDescription string
+	confirmResponseCh  chan bool
+
+	// Tool execution status
+	toolStatus string // e.g., "Reading main.go..." — shown in consensus panel during tool exec
+
 	// State
 	showIndividual bool
 	querying       bool

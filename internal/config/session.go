@@ -8,10 +8,26 @@ import (
 	"time"
 )
 
+// ToolCallRecord is a serializable tool call.
+type ToolCallRecord struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// ToolResultRecord is a serializable tool result.
+type ToolResultRecord struct {
+	ToolCallID string `json:"tool_call_id"`
+	Output     string `json:"output"`
+	Error      string `json:"error,omitempty"`
+}
+
 // SessionMessage is a serializable conversation message.
 type SessionMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string            `json:"role"`
+	Content    string            `json:"content"`
+	ToolCalls  []ToolCallRecord  `json:"tool_calls,omitempty"`
+	ToolResult *ToolResultRecord `json:"tool_result,omitempty"`
 }
 
 // SessionExchange is a serializable prompt/response pair for display history.

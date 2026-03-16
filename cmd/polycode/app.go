@@ -14,6 +14,7 @@ import (
 	"github.com/izzoa/polycode/internal/config"
 	"github.com/izzoa/polycode/internal/consensus"
 	"github.com/izzoa/polycode/internal/provider"
+	"github.com/izzoa/polycode/internal/telemetry"
 	"github.com/izzoa/polycode/internal/tokens"
 	"github.com/izzoa/polycode/internal/tui"
 )
@@ -92,6 +93,15 @@ func startTUI(cfg *config.Config) error {
 
 	// Create token tracker
 	tracker := tokens.NewTracker(providerModels, providerLimits)
+
+	// Create telemetry logger
+	tlog, err := telemetry.NewLogger()
+	if err != nil {
+		log.Printf("Warning: telemetry disabled: %v", err)
+	}
+	if tlog != nil {
+		defer tlog.Close()
+	}
 
 	// Create consensus pipeline with tracker
 	pipeline := consensus.NewPipeline(
@@ -295,10 +305,27 @@ func startTUI(cfg *config.Config) error {
 				return
 			}
 
-			// Update token tracker with fan-out usage
+			// Update token tracker and log telemetry for fan-out
 			if fanOutResult != nil {
 				for id, usage := range fanOutResult.Usage {
 					tracker.Add(id, usage)
+					if tlog != nil {
+						tlog.Log(telemetry.Event{
+							ProviderID:   id,
+							EventType:    telemetry.EventProviderResponse,
+							InputTokens:  usage.InputTokens,
+							OutputTokens: usage.OutputTokens,
+						})
+					}
+				}
+				for id, provErr := range fanOutResult.Errors {
+					if tlog != nil {
+						tlog.Log(telemetry.Event{
+							ProviderID: id,
+							EventType:  telemetry.EventProviderResponse,
+							Error:      provErr.Error(),
+						})
+					}
 				}
 
 				// Send individual provider results to TUI
@@ -325,9 +352,10 @@ func startTUI(cfg *config.Config) error {
 				}
 			}
 
-			// Stream consensus output and accumulate the full response
+			// Stream consensus output, accumulate response, detect tool calls
 			var fullResponse string
 			var consensusUsage tokens.Usage
+			var pendingToolCalls []provider.ToolCall
 			for chunk := range stream {
 				if chunk.Error != nil {
 					program.Send(tui.ConsensusChunkMsg{Error: chunk.Error})
@@ -338,7 +366,10 @@ func startTUI(cfg *config.Config) error {
 						InputTokens:  chunk.InputTokens,
 						OutputTokens: chunk.OutputTokens,
 					}
-					program.Send(tui.ConsensusChunkMsg{Done: true})
+					pendingToolCalls = chunk.ToolCalls
+					if len(pendingToolCalls) == 0 {
+						program.Send(tui.ConsensusChunkMsg{Done: true})
+					}
 					break
 				}
 				fullResponse += chunk.Delta
@@ -350,16 +381,80 @@ func startTUI(cfg *config.Config) error {
 				tracker.Add(primary.ID(), consensusUsage)
 			}
 
-			// Send updated token snapshot to TUI
-			program.Send(tui.TokenUpdateMsg{Usage: tracker.Summary()})
-
-			// Append assistant response to conversation history
+			// Append the assistant's text response to conversation
 			if fullResponse != "" {
 				conv.append(provider.Message{
 					Role:    provider.RoleAssistant,
 					Content: fullResponse,
 				})
 			}
+
+			// Execute tool calls if the consensus response included them
+			if len(pendingToolCalls) > 0 {
+				// Build confirmation callback that bridges to TUI
+				confirmFunc := action.ConfirmFunc(func(description string) bool {
+					responseCh := make(chan bool, 1)
+					program.Send(tui.ConfirmActionMsg{
+						Description: description,
+						ResponseCh:  responseCh,
+					})
+					// Wait for user response (with 5-minute timeout)
+					select {
+					case response := <-responseCh:
+						return response
+					case <-time.After(5 * time.Minute):
+						return false
+					case <-ctx.Done():
+						return false
+					}
+				})
+
+				executor := action.NewExecutor(confirmFunc, 120*time.Second)
+				toolLoop := action.NewToolLoop(executor, primary)
+
+				// Notify TUI that tool execution is starting
+				for _, tc := range pendingToolCalls {
+					program.Send(tui.ToolCallMsg{
+						ToolName:    tc.Name,
+						Description: fmt.Sprintf("Executing %s...", tc.Name),
+					})
+				}
+
+				// Run the tool loop — executes calls, feeds results back to primary
+				currentMsgs := conv.snapshot()
+				toolStream, err := toolLoop.Run(ctx, currentMsgs, pendingToolCalls, opts)
+				if err != nil {
+					program.Send(tui.ConsensusChunkMsg{Error: err})
+				} else {
+					// Stream the tool loop's follow-up response
+					var toolResponse string
+					for chunk := range toolStream {
+						if chunk.Error != nil {
+							program.Send(tui.ConsensusChunkMsg{Error: chunk.Error})
+							break
+						}
+						if chunk.Done {
+							break
+						}
+						toolResponse += chunk.Delta
+						program.Send(tui.ConsensusChunkMsg{Delta: chunk.Delta})
+					}
+
+					// Append the tool loop's final response
+					if toolResponse != "" {
+						fullResponse += "\n" + toolResponse
+						conv.append(provider.Message{
+							Role:    provider.RoleAssistant,
+							Content: toolResponse,
+						})
+					}
+				}
+
+				program.Send(tui.ConsensusChunkMsg{Done: true})
+			}
+
+			// Send updated token snapshot to TUI
+			program.Send(tui.TokenUpdateMsg{Usage: tracker.Summary()})
 
 			// Auto-save session to disk
 			go func() {
@@ -372,7 +467,6 @@ func startTUI(cfg *config.Config) error {
 					})
 				}
 
-				// Build exchange for the current turn
 				individual := make(map[string]string)
 				if fanOutResult != nil {
 					for id, content := range fanOutResult.Responses {
@@ -380,7 +474,6 @@ func startTUI(cfg *config.Config) error {
 					}
 				}
 
-				// Load existing session to append exchange
 				session, _ := config.LoadSession()
 				if session == nil {
 					session = &config.Session{}

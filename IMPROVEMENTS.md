@@ -14,13 +14,13 @@ Prioritized phases for making polycode a production-ready, differentiated multi-
 
 ### Tasks
 
-- [ ] Wire the existing tool loop (`internal/action/loop.go`) into the main app path in `cmd/polycode/app.go` — consensus output with tool calls must trigger actual file edits and shell commands
-- [ ] Carry full working state (conversation + tool results + file context) into the synthesis prompt, not just the original user prompt + raw provider responses
-- [ ] Define a canonical execution state machine: `prompt → fan-out → collect → synthesize → tool-loop → confirm → save-session`
-- [ ] Add per-provider telemetry: latency (time-to-first-token, total), token counts, error rates, timeout rates — logged to a local telemetry file
-- [ ] Build golden-task end-to-end eval fixtures that test: file read, file edit, shell exec, test-run-and-fix, and session resume from disk
-- [ ] Add deterministic behavior for timeouts, provider failures, and session resume (no silent data loss)
-- [ ] Ensure tool execution results feed back into the conversation state and are persisted in the session file
+- [x] Wire the existing tool loop (`internal/action/loop.go`) into the main app path in `cmd/polycode/app.go` — consensus output with tool calls must trigger actual file edits and shell commands
+- [x] Carry full working state (conversation + tool results + file context) into the synthesis prompt, not just the original user prompt + raw provider responses
+- [x] Define a canonical execution state machine: `prompt → fan-out → collect → synthesize → tool-loop → confirm → save-session`
+- [x] Add per-provider telemetry: latency (time-to-first-token, total), token counts, error rates, timeout rates — logged to a local telemetry file
+- [x] Build golden-task end-to-end eval fixtures that test: file read, file edit, shell exec, test-run-and-fix, and session resume from disk
+- [x] Add deterministic behavior for timeouts, provider failures, and session resume (no silent data loss)
+- [x] Ensure tool execution results feed back into the conversation state and are persisted in the session file
 
 ### Validation Gates
 
