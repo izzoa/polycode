@@ -147,4 +147,4 @@ Analyze all responses and produce the best synthesis.
 
 ## License
 
-MIT
+AGPLv3 — see [LICENSE](LICENSE) for details.

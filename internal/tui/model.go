@@ -6,9 +6,36 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/anthonyizzo/polycode/internal/config"
+)
+
+// viewMode represents which screen the TUI is currently showing.
+type viewMode int
+
+const (
+	viewChat        viewMode = iota
+	viewSettings
+	viewAddProvider
+	viewEditProvider
+)
+
+// wizardStep represents a step in the add/edit provider wizard.
+type wizardStep int
+
+const (
+	stepType    wizardStep = iota
+	stepName
+	stepAuth
+	stepAPIKey
+	stepModel
+	stepBaseURL
+	stepPrimary
+	stepConfirm
 )
 
 // ProviderStatus tracks the state of a single provider's response.
@@ -86,8 +113,35 @@ type Model struct {
 	// Styles
 	styles Styles
 
+	// View mode — which screen is displayed
+	mode viewMode
+
+	// Settings screen state
+	settingsCursor int
+	confirmDelete  bool
+	settingsMsg    string // transient status message shown in settings
+	testingProvider string // provider name currently being tested
+
+	// Wizard state (add/edit provider)
+	wizardStep      wizardStep
+	wizardData      config.ProviderConfig
+	wizardInput     textinput.Model
+	wizardListCursor int
+	wizardListItems []string
+	wizardEditing   bool   // true when editing an existing provider
+	wizardEditIndex int    // index into config.Providers being edited
+	wizardAPIKey    string // API key captured during stepAPIKey
+
+	// Help overlay
+	showHelp bool
+
+	// Config reference (needed for settings CRUD)
+	cfg *config.Config
+
 	// Callbacks (set by the app layer)
-	onSubmit func(prompt string)
+	onSubmit        func(prompt string)
+	onConfigChanged func(*config.Config)
+	onTestProvider  func(providerName string)
 }
 
 // Styles holds all lipgloss styles for the TUI.
@@ -170,6 +224,9 @@ func NewModel(providerNames []string, primaryName string, version string) Model 
 	consensusVP := viewport.New(0, 0)
 	chatVP := viewport.New(0, 0)
 
+	ti := textinput.New()
+	ti.CharLimit = 256
+
 	return Model{
 		textarea:       ta,
 		panels:         panels,
@@ -182,12 +239,33 @@ func NewModel(providerNames []string, primaryName string, version string) Model 
 		spinner:        sp,
 		history:        []Exchange{},
 		styles:         defaultStyles(),
+		mode:           viewChat,
+		wizardInput:    ti,
 	}
+}
+
+// SetConfig sets the config reference on the model so settings screens can
+// perform CRUD operations.
+func (m *Model) SetConfig(cfg *config.Config) {
+	m.cfg = cfg
 }
 
 // SetSubmitHandler sets the callback for when the user submits a prompt.
 func (m *Model) SetSubmitHandler(handler func(prompt string)) {
 	m.onSubmit = handler
+}
+
+// SetConfigChangeHandler sets the callback invoked when the config changes
+// from the settings screen (add/edit/delete provider). The app layer uses
+// this to rebuild the registry and pipeline.
+func (m *Model) SetConfigChangeHandler(handler func(*config.Config)) {
+	m.onConfigChanged = handler
+}
+
+// SetTestProviderHandler sets the callback invoked when the user presses
+// 't' in the settings screen to test a provider connection.
+func (m *Model) SetTestProviderHandler(handler func(providerName string)) {
+	m.onTestProvider = handler
 }
 
 // splashDoneMsg is sent when the splash timeout expires.

@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/anthonyizzo/polycode/internal/auth"
 	"github.com/anthonyizzo/polycode/internal/tokens"
 )
 
@@ -59,31 +60,57 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showSplash = false
 			return m, nil
 		}
-		switch msg.String() {
-		case "ctrl+c":
-			return m, tea.Quit
-		case "tab":
-			m.showIndividual = !m.showIndividual
+
+		// Help overlay toggle — available from any view
+		if msg.String() == "?" && m.mode != viewAddProvider && m.mode != viewEditProvider {
+			m.showHelp = !m.showHelp
 			return m, nil
-		case "enter":
-			if !m.querying {
-				prompt := strings.TrimSpace(m.textarea.Value())
-				if prompt != "" {
-					m.currentPrompt = prompt
-					m.textarea.Reset()
-					m.resetPanels()
-					if m.onSubmit != nil {
-						m.onSubmit(prompt)
-					}
-				}
-				return m, nil
+		}
+		if m.showHelp {
+			if msg.String() == "esc" || msg.String() == "?" {
+				m.showHelp = false
 			}
+			if msg.String() == "ctrl+c" {
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+
+		// Route key events by mode
+		switch m.mode {
+		case viewSettings:
+			return m.updateSettings(msg)
+		case viewAddProvider, viewEditProvider:
+			return m.updateWizard(msg)
+		default:
+			return m.updateChat(msg)
 		}
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		m.updateLayout()
+		return m, nil
+
+	case ConfigChangedMsg:
+		// Handled by the app layer callback; we also update local state.
+		m.cfg = msg.Config
+		m.rebuildPanelsFromConfig()
+		return m, nil
+
+	case TestResultMsg:
+		m.testingProvider = ""
+		if msg.Success {
+			m.settingsMsg = m.styles.StatusHealthy.Render(
+				"Connected to " + msg.ProviderName + " (" + msg.Duration + ")")
+		} else {
+			errMsg := "unknown error"
+			if msg.Error != nil {
+				errMsg = msg.Error.Error()
+			}
+			m.settingsMsg = m.styles.StatusUnhealthy.Render(
+				"Error testing " + msg.ProviderName + ": " + errMsg)
+		}
 		return m, nil
 
 	case QueryStartMsg:
@@ -158,32 +185,200 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case spinner.TickMsg:
-		if m.querying {
+		if m.querying || m.testingProvider != "" {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			cmds = append(cmds, cmd)
 		}
 	}
 
-	// Update textarea
-	if !m.querying {
+	// Update textarea (only in chat mode and not querying)
+	if m.mode == viewChat && !m.querying {
 		var cmd tea.Cmd
 		m.textarea, cmd = m.textarea.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 
-	// Update viewports
-	for i := range m.panels {
+	// Update viewports (only in chat mode)
+	if m.mode == viewChat {
+		for i := range m.panels {
+			var cmd tea.Cmd
+			m.panels[i].Viewport, cmd = m.panels[i].Viewport.Update(msg)
+			cmds = append(cmds, cmd)
+		}
+
 		var cmd tea.Cmd
-		m.panels[i].Viewport, cmd = m.panels[i].Viewport.Update(msg)
+		m.consensusView, cmd = m.consensusView.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 
-	var cmd tea.Cmd
-	m.consensusView, cmd = m.consensusView.Update(msg)
-	cmds = append(cmds, cmd)
-
 	return m, tea.Batch(cmds...)
+}
+
+// updateChat handles key events when in chat mode.
+func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "ctrl+s":
+		if !m.querying {
+			m.mode = viewSettings
+			m.settingsCursor = 0
+			m.confirmDelete = false
+			m.settingsMsg = ""
+			return m, nil
+		}
+	case "tab":
+		m.showIndividual = !m.showIndividual
+		return m, nil
+	case "enter":
+		if !m.querying {
+			prompt := strings.TrimSpace(m.textarea.Value())
+			if prompt != "" {
+				// Check for /settings command
+				if strings.HasPrefix(prompt, "/settings") {
+					m.textarea.Reset()
+					m.mode = viewSettings
+					m.settingsCursor = 0
+					m.confirmDelete = false
+					m.settingsMsg = ""
+					return m, nil
+				}
+				m.currentPrompt = prompt
+				m.textarea.Reset()
+				m.resetPanels()
+				if m.onSubmit != nil {
+					m.onSubmit(prompt)
+				}
+			}
+			return m, nil
+		}
+	}
+
+	// Pass to textarea
+	var cmd tea.Cmd
+	m.textarea, cmd = m.textarea.Update(msg)
+	return m, cmd
+}
+
+// updateSettings handles key events when in settings mode.
+func (m Model) updateSettings(msg tea.KeyMsg) (Model, tea.Cmd) {
+	key := msg.String()
+
+	// If confirming delete, only handle y/n
+	if m.confirmDelete {
+		switch key {
+		case "y":
+			m.confirmDelete = false
+			return m.deleteSelectedProvider()
+		case "n", "esc":
+			m.confirmDelete = false
+			return m, nil
+		case "ctrl+c":
+			return m, tea.Quit
+		}
+		return m, nil
+	}
+
+	providerCount := 0
+	if m.cfg != nil {
+		providerCount = len(m.cfg.Providers)
+	}
+
+	switch key {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.mode = viewChat
+		m.settingsMsg = ""
+		m.textarea.Focus()
+		return m, nil
+	case "j", "down":
+		if m.settingsCursor < providerCount-1 {
+			m.settingsCursor++
+		}
+		m.settingsMsg = ""
+		return m, nil
+	case "k", "up":
+		if m.settingsCursor > 0 {
+			m.settingsCursor--
+		}
+		m.settingsMsg = ""
+		return m, nil
+	case "a":
+		m.initWizardForAdd()
+		return m, nil
+	case "e":
+		if providerCount > 0 {
+			m.initWizardForEdit(m.settingsCursor)
+		}
+		return m, nil
+	case "d":
+		if providerCount > 0 {
+			if m.cfg.Providers[m.settingsCursor].Primary {
+				m.settingsMsg = m.styles.StatusUnhealthy.Render(
+					"Cannot remove the primary provider. Change primary first.")
+				return m, nil
+			}
+			m.confirmDelete = true
+		}
+		return m, nil
+	case "t":
+		if providerCount > 0 {
+			name := m.cfg.Providers[m.settingsCursor].Name
+			m.testingProvider = name
+			m.settingsMsg = ""
+			if m.onTestProvider != nil {
+				m.onTestProvider(name)
+			}
+			return m, m.spinner.Tick
+		}
+		return m, nil
+	}
+
+	return m, nil
+}
+
+// deleteSelectedProvider removes the currently selected provider from the
+// config, deletes its credentials, saves, and sends a ConfigChangedMsg.
+func (m Model) deleteSelectedProvider() (Model, tea.Cmd) {
+	if m.cfg == nil || m.settingsCursor >= len(m.cfg.Providers) {
+		return m, nil
+	}
+
+	name := m.cfg.Providers[m.settingsCursor].Name
+
+	// Remove from config
+	m.cfg.Providers = append(
+		m.cfg.Providers[:m.settingsCursor],
+		m.cfg.Providers[m.settingsCursor+1:]...,
+	)
+
+	// Delete stored credentials
+	store := auth.NewStore()
+	_ = store.Delete(name)
+
+	// Save config
+	_ = m.cfg.Save()
+
+	// Adjust cursor
+	if m.settingsCursor >= len(m.cfg.Providers) && m.settingsCursor > 0 {
+		m.settingsCursor--
+	}
+
+	m.settingsMsg = m.styles.StatusHealthy.Render("Provider '" + name + "' removed")
+
+	// Rebuild panels
+	m.rebuildPanelsFromConfig()
+
+	// Notify app layer
+	if m.onConfigChanged != nil {
+		m.onConfigChanged(m.cfg)
+	}
+
+	return m, func() tea.Msg {
+		return ConfigChangedMsg{Config: m.cfg}
+	}
 }
 
 func (m *Model) resetPanels() {

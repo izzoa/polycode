@@ -18,6 +18,24 @@ func (m Model) View() string {
 		return m.renderSplash()
 	}
 
+	// Help overlay takes priority
+	if m.showHelp {
+		return m.renderHelp()
+	}
+
+	// Dispatch based on current view mode
+	switch m.mode {
+	case viewSettings:
+		return m.renderSettings()
+	case viewAddProvider, viewEditProvider:
+		return m.renderWizard()
+	default:
+		return m.renderChat()
+	}
+}
+
+// renderChat renders the main chat view.
+func (m Model) renderChat() string {
 	var sections []string
 
 	// Status bar (always visible)
@@ -43,6 +61,67 @@ func (m Model) View() string {
 	sections = append(sections, m.renderInput())
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+}
+
+// renderHelp renders the help overlay showing all keyboard shortcuts.
+func (m Model) renderHelp() string {
+	var sections []string
+
+	title := m.styles.Title.Render("Keyboard Shortcuts")
+	sections = append(sections, title)
+	sections = append(sections, "")
+
+	labelStyle := lipgloss.NewStyle().Bold(true).Width(16)
+	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+
+	helpItems := []struct{ key, desc string }{
+		{"Ctrl+C", "Quit"},
+		{"Ctrl+S", "Open settings"},
+		{"/settings", "Open settings (type in input)"},
+		{"Tab", "Toggle individual provider panels"},
+		{"Enter", "Submit prompt / advance wizard step"},
+		{"?", "Toggle this help overlay"},
+		{"", ""},
+		{"", "Settings Screen"},
+		{"j / Down", "Move cursor down"},
+		{"k / Up", "Move cursor up"},
+		{"a", "Add new provider"},
+		{"e", "Edit selected provider"},
+		{"d", "Delete selected provider"},
+		{"t", "Test selected provider connection"},
+		{"Esc", "Return to chat / cancel"},
+	}
+
+	for _, item := range helpItems {
+		if item.key == "" && item.desc == "" {
+			sections = append(sections, "")
+			continue
+		}
+		if item.key == "" {
+			sections = append(sections, m.styles.Title.Render(item.desc))
+			continue
+		}
+		sections = append(sections, labelStyle.Render(item.key)+"  "+valueStyle.Render(item.desc))
+	}
+
+	sections = append(sections, "")
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	sections = append(sections, hintStyle.Render("Press ? or Esc to close"))
+
+	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
+
+	// Center vertically
+	contentLines := strings.Count(content, "\n") + 1
+	topPad := (m.height - contentLines) / 2
+	if topPad < 0 {
+		topPad = 0
+	}
+
+	return lipgloss.NewStyle().
+		Width(m.width).
+		PaddingTop(topPad).
+		PaddingLeft(4).
+		Render(content)
 }
 
 func (m Model) renderStatusBar() string {
