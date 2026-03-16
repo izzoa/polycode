@@ -102,18 +102,45 @@ func startTUI(cfg *config.Config) error {
 		tracker,
 	)
 
+	// System prompt used at the start of every conversation.
+	systemPrompt := provider.Message{
+		Role:    provider.RoleSystem,
+		Content: "You are polycode, a helpful coding assistant. Provide clear, concise answers to programming questions. When the user asks you to make changes, use the available tools (file_read, file_write, shell_exec) to interact with their codebase.",
+	}
+
 	// Conversation state persists across turns
 	conv := &conversationState{
-		messages: []provider.Message{
-			{
-				Role:    provider.RoleSystem,
-				Content: "You are polycode, a helpful coding assistant. Provide clear, concise answers to programming questions. When the user asks you to make changes, use the available tools (file_read, file_write, shell_exec) to interact with their codebase.",
-			},
-		},
+		messages: []provider.Message{systemPrompt},
 	}
 
 	// Create TUI model
 	model := tui.NewModel(names, primary.ID(), version)
+
+	// Auto-resume: load saved session if one exists
+	if savedSession, err := config.LoadSession(); err == nil && savedSession != nil && len(savedSession.Messages) > 0 {
+		// Restore conversation messages
+		conv.mu.Lock()
+		conv.messages = []provider.Message{systemPrompt}
+		for _, m := range savedSession.Messages {
+			if m.Role == "system" {
+				continue // skip saved system prompt, we use the current one
+			}
+			conv.messages = append(conv.messages, provider.Message{
+				Role:    provider.Role(m.Role),
+				Content: m.Content,
+			})
+		}
+		conv.mu.Unlock()
+
+		// Restore display history
+		for _, ex := range savedSession.Exchanges {
+			model.AppendHistory(tui.Exchange{
+				Prompt:             ex.Prompt,
+				ConsensusResponse:  ex.ConsensusResponse,
+				IndividualResponse: ex.Individual,
+			})
+		}
+	}
 	model.SetConfig(cfg)
 
 	// Create the Bubble Tea program
@@ -229,6 +256,14 @@ func startTUI(cfg *config.Config) error {
 		}()
 	})
 
+	// Set up clear handler to reset conversation state and delete saved session
+	model.SetClearHandler(func() {
+		conv.mu.Lock()
+		conv.messages = []provider.Message{systemPrompt}
+		conv.mu.Unlock()
+		_ = config.ClearSession()
+	})
+
 	// Set up the submit handler that bridges TUI → pipeline
 	model.SetSubmitHandler(func(prompt string) {
 		go func() {
@@ -325,6 +360,39 @@ func startTUI(cfg *config.Config) error {
 					Content: fullResponse,
 				})
 			}
+
+			// Auto-save session to disk
+			go func() {
+				snapshot := conv.snapshot()
+				var sessionMsgs []config.SessionMessage
+				for _, m := range snapshot {
+					sessionMsgs = append(sessionMsgs, config.SessionMessage{
+						Role:    string(m.Role),
+						Content: m.Content,
+					})
+				}
+
+				// Build exchange for the current turn
+				individual := make(map[string]string)
+				if fanOutResult != nil {
+					for id, content := range fanOutResult.Responses {
+						individual[id] = content
+					}
+				}
+
+				// Load existing session to append exchange
+				session, _ := config.LoadSession()
+				if session == nil {
+					session = &config.Session{}
+				}
+				session.Messages = sessionMsgs
+				session.Exchanges = append(session.Exchanges, config.SessionExchange{
+					Prompt:            prompt,
+					ConsensusResponse: fullResponse,
+					Individual:        individual,
+				})
+				_ = config.SaveSession(session)
+			}()
 
 			program.Send(tui.QueryDoneMsg{})
 		}()

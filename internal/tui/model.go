@@ -140,6 +140,7 @@ type Model struct {
 
 	// Callbacks (set by the app layer)
 	onSubmit        func(prompt string)
+	onClear         func()
 	onConfigChanged func(*config.Config)
 	onTestProvider  func(providerName string)
 }
@@ -253,6 +254,16 @@ func (m *Model) SetConfig(cfg *config.Config) {
 // SetSubmitHandler sets the callback for when the user submits a prompt.
 func (m *Model) SetSubmitHandler(handler func(prompt string)) {
 	m.onSubmit = handler
+}
+
+// SetClearHandler sets the callback for when the user runs /clear.
+func (m *Model) SetClearHandler(handler func()) {
+	m.onClear = handler
+}
+
+// AppendHistory adds an exchange to the display history (used for session restore).
+func (m *Model) AppendHistory(ex Exchange) {
+	m.history = append(m.history, ex)
 }
 
 // SetConfigChangeHandler sets the callback invoked when the config changes

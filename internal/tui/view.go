@@ -78,6 +78,7 @@ func (m Model) renderHelp() string {
 		{"Ctrl+C", "Quit"},
 		{"Ctrl+S", "Open settings"},
 		{"/settings", "Open settings (type in input)"},
+		{"/clear", "Clear conversation and reset context"},
 		{"Tab", "Toggle individual provider panels"},
 		{"Enter", "Submit prompt / advance wizard step"},
 		{"?", "Toggle this help overlay"},

@@ -13,24 +13,36 @@ import (
 	"github.com/izzoa/polycode/internal/auth"
 )
 
-const anthropicAPIURL = "https://api.anthropic.com/v1/messages"
+const defaultAnthropicURL = "https://api.anthropic.com/v1/messages"
 
 // AnthropicProvider implements Provider for the Anthropic Messages API.
 type AnthropicProvider struct {
-	name   string
-	model  string
-	apiKey string
-	store  auth.Store
-	client *http.Client
+	name       string
+	model      string
+	baseURL    string
+	authMethod string
+	oauthCfg   *auth.DeviceFlowConfig
+	apiKey     string
+	store      auth.Store
+	client     *http.Client
 }
 
 // NewAnthropicProvider creates a new Anthropic provider adapter.
-func NewAnthropicProvider(name, model string, store auth.Store) *AnthropicProvider {
+// If baseURL is empty, the default Anthropic API URL is used.
+func NewAnthropicProvider(name, model, baseURL, authMethod string, oauthCfg *auth.DeviceFlowConfig, store auth.Store) *AnthropicProvider {
+	if baseURL == "" {
+		baseURL = defaultAnthropicURL
+	} else {
+		baseURL = strings.TrimRight(baseURL, "/")
+	}
 	return &AnthropicProvider{
-		name:   name,
-		model:  model,
-		store:  store,
-		client: &http.Client{},
+		name:       name,
+		model:      model,
+		baseURL:    baseURL,
+		authMethod: authMethod,
+		oauthCfg:   oauthCfg,
+		store:      store,
+		client:     &http.Client{},
 	}
 }
 
@@ -39,12 +51,26 @@ func (p *AnthropicProvider) ID() string {
 }
 
 func (p *AnthropicProvider) Authenticate() error {
+	// Try loading existing token/key from store first.
 	key, err := p.store.Get(p.name)
-	if err != nil {
-		return fmt.Errorf("anthropic authenticate: %w", err)
+	if err == nil && key != "" {
+		p.apiKey = key
+		return nil
 	}
-	p.apiKey = key
-	return nil
+
+	// If OAuth, run the device flow to get a token.
+	if p.authMethod == "oauth" && p.oauthCfg != nil {
+		token, err := auth.RunDeviceFlow(*p.oauthCfg, p.store)
+		if err != nil {
+			return fmt.Errorf("anthropic oauth: %w", err)
+		}
+		p.apiKey = token
+		// Store under provider name for future lookups.
+		_ = p.store.Set(p.name, token)
+		return nil
+	}
+
+	return fmt.Errorf("anthropic authenticate: no credentials found for %q — run 'polycode auth login %s'", p.name, p.name)
 }
 
 func (p *AnthropicProvider) Validate() error {
@@ -126,7 +152,7 @@ func (p *AnthropicProvider) Query(ctx context.Context, messages []Message, opts 
 		return nil, fmt.Errorf("anthropic: marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, anthropicAPIURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: create request: %w", err)
 	}

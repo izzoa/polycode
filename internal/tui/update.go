@@ -235,13 +235,26 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if !m.querying {
 			prompt := strings.TrimSpace(m.textarea.Value())
 			if prompt != "" {
-				// Check for /settings command
+				// Check for slash commands
 				if strings.HasPrefix(prompt, "/settings") {
 					m.textarea.Reset()
 					m.mode = viewSettings
 					m.settingsCursor = 0
 					m.confirmDelete = false
 					m.settingsMsg = ""
+					return m, nil
+				}
+				if strings.HasPrefix(prompt, "/clear") {
+					m.textarea.Reset()
+					m.history = nil
+					m.currentPrompt = ""
+					m.consensusContent.Reset()
+					m.consensusView.SetContent("")
+					m.chatView.SetContent("")
+					m.resetPanels()
+					if m.onClear != nil {
+						m.onClear()
+					}
 					return m, nil
 				}
 				m.currentPrompt = prompt
@@ -442,13 +455,13 @@ func (m Model) buildChatLog() string {
 	var b strings.Builder
 
 	for _, ex := range m.history {
-		// User prompt
+		// User prompt (rendered as-is, no markdown)
 		b.WriteString("❯ ")
 		b.WriteString(ex.Prompt)
 		b.WriteString("\n\n")
-		// Consensus response
-		b.WriteString(ex.ConsensusResponse)
-		b.WriteString("\n\n")
+		// Consensus response (rendered as markdown with syntax highlighting)
+		b.WriteString(renderMarkdown(ex.ConsensusResponse))
+		b.WriteString("\n")
 	}
 
 	// If currently querying, show the in-progress prompt

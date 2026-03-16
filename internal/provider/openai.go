@@ -13,24 +13,36 @@ import (
 	"github.com/izzoa/polycode/internal/auth"
 )
 
-const openaiAPIURL = "https://api.openai.com/v1/chat/completions"
+const defaultOpenAIURL = "https://api.openai.com/v1/chat/completions"
 
 // OpenAIProvider implements Provider for the OpenAI Chat Completions API.
 type OpenAIProvider struct {
-	name   string
-	model  string
-	apiKey string
-	store  auth.Store
-	client *http.Client
+	name       string
+	model      string
+	baseURL    string
+	authMethod string
+	oauthCfg   *auth.DeviceFlowConfig
+	apiKey     string
+	store      auth.Store
+	client     *http.Client
 }
 
 // NewOpenAIProvider creates a new OpenAI provider adapter.
-func NewOpenAIProvider(name, model string, store auth.Store) *OpenAIProvider {
+// If baseURL is empty, the default OpenAI API URL is used.
+func NewOpenAIProvider(name, model, baseURL, authMethod string, oauthCfg *auth.DeviceFlowConfig, store auth.Store) *OpenAIProvider {
+	if baseURL == "" {
+		baseURL = defaultOpenAIURL
+	} else {
+		baseURL = strings.TrimRight(baseURL, "/") + "/chat/completions"
+	}
 	return &OpenAIProvider{
-		name:   name,
-		model:  model,
-		store:  store,
-		client: &http.Client{},
+		name:       name,
+		model:      model,
+		baseURL:    baseURL,
+		authMethod: authMethod,
+		oauthCfg:   oauthCfg,
+		store:      store,
+		client:     &http.Client{},
 	}
 }
 
@@ -39,12 +51,25 @@ func (p *OpenAIProvider) ID() string {
 }
 
 func (p *OpenAIProvider) Authenticate() error {
+	// Try loading existing token/key from store first.
 	key, err := p.store.Get(p.name)
-	if err != nil {
-		return fmt.Errorf("openai authenticate: %w", err)
+	if err == nil && key != "" {
+		p.apiKey = key
+		return nil
 	}
-	p.apiKey = key
-	return nil
+
+	// If OAuth, run the device flow to get a token.
+	if p.authMethod == "oauth" && p.oauthCfg != nil {
+		token, err := auth.RunDeviceFlow(*p.oauthCfg, p.store)
+		if err != nil {
+			return fmt.Errorf("openai oauth: %w", err)
+		}
+		p.apiKey = token
+		_ = p.store.Set(p.name, token)
+		return nil
+	}
+
+	return fmt.Errorf("openai authenticate: no credentials found for %q — run 'polycode auth login %s'", p.name, p.name)
 }
 
 func (p *OpenAIProvider) Validate() error {
@@ -149,7 +174,7 @@ func (p *OpenAIProvider) Query(ctx context.Context, messages []Message, opts Que
 		return nil, fmt.Errorf("openai: marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, openaiAPIURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("openai: create request: %w", err)
 	}

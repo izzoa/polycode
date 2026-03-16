@@ -27,13 +27,16 @@ const (
 )
 
 type ProviderConfig struct {
-	Name       string       `yaml:"name"`
-	Type       ProviderType `yaml:"type"`
-	Auth       AuthMethod   `yaml:"auth"`
-	Model      string       `yaml:"model"`
-	Primary    bool         `yaml:"primary,omitempty"`
-	BaseURL    string       `yaml:"base_url,omitempty"`
-	MaxContext int          `yaml:"max_context,omitempty"`
+	Name           string       `yaml:"name"`
+	Type           ProviderType `yaml:"type"`
+	Auth           AuthMethod   `yaml:"auth"`
+	Model          string       `yaml:"model"`
+	Primary        bool         `yaml:"primary,omitempty"`
+	BaseURL        string       `yaml:"base_url,omitempty"`
+	MaxContext     int          `yaml:"max_context,omitempty"`
+	OAuthClientID  string       `yaml:"oauth_client_id,omitempty"`
+	OAuthDeviceURL string       `yaml:"oauth_device_url,omitempty"`
+	OAuthTokenURL  string       `yaml:"oauth_token_url,omitempty"`
 }
 
 type ConsensusConfig struct {

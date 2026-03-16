@@ -63,13 +63,22 @@ func NewRegistryWithStore(cfg *config.Config, store auth.Store) (*Registry, erro
 
 // newProvider creates a Provider implementation from a ProviderConfig.
 func newProvider(pc config.ProviderConfig, store auth.Store) (Provider, error) {
+	var oauthCfg *auth.DeviceFlowConfig
+	if pc.Auth == config.AuthMethodOAuth && pc.OAuthClientID != "" {
+		oauthCfg = &auth.DeviceFlowConfig{
+			ClientID:      pc.OAuthClientID,
+			DeviceAuthURL: pc.OAuthDeviceURL,
+			TokenURL:      pc.OAuthTokenURL,
+		}
+	}
+
 	switch pc.Type {
 	case config.ProviderTypeAnthropic:
-		return NewAnthropicProvider(pc.Name, pc.Model, store), nil
+		return NewAnthropicProvider(pc.Name, pc.Model, pc.BaseURL, string(pc.Auth), oauthCfg, store), nil
 	case config.ProviderTypeOpenAI:
-		return NewOpenAIProvider(pc.Name, pc.Model, store), nil
+		return NewOpenAIProvider(pc.Name, pc.Model, pc.BaseURL, string(pc.Auth), oauthCfg, store), nil
 	case config.ProviderTypeGoogle:
-		return NewGeminiProvider(pc.Name, pc.Model, store), nil
+		return NewGeminiProvider(pc.Name, pc.Model, pc.BaseURL, string(pc.Auth), oauthCfg, store), nil
 	case config.ProviderTypeOpenAICompatible:
 		return NewOpenAICompatProvider(pc.Name, pc.Model, pc.BaseURL, pc.Auth, store), nil
 	default:

@@ -12,24 +12,36 @@ import (
 	"github.com/izzoa/polycode/internal/auth"
 )
 
-const geminiBaseURL = "https://generativelanguage.googleapis.com/v1beta/models"
+const defaultGeminiBaseURL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 // GeminiProvider implements Provider for the Google Gemini API.
 type GeminiProvider struct {
-	name   string
-	model  string
-	apiKey string
-	store  auth.Store
-	client *http.Client
+	name       string
+	model      string
+	baseURL    string
+	authMethod string
+	oauthCfg   *auth.DeviceFlowConfig
+	apiKey     string
+	store      auth.Store
+	client     *http.Client
 }
 
 // NewGeminiProvider creates a new Gemini provider adapter.
-func NewGeminiProvider(name, model string, store auth.Store) *GeminiProvider {
+// If baseURL is empty, the default Gemini API URL is used.
+func NewGeminiProvider(name, model, baseURL, authMethod string, oauthCfg *auth.DeviceFlowConfig, store auth.Store) *GeminiProvider {
+	if baseURL == "" {
+		baseURL = defaultGeminiBaseURL
+	} else {
+		baseURL = strings.TrimRight(baseURL, "/")
+	}
 	return &GeminiProvider{
-		name:   name,
-		model:  model,
-		store:  store,
-		client: &http.Client{},
+		name:       name,
+		model:      model,
+		baseURL:    baseURL,
+		authMethod: authMethod,
+		oauthCfg:   oauthCfg,
+		store:      store,
+		client:     &http.Client{},
 	}
 }
 
@@ -38,12 +50,25 @@ func (p *GeminiProvider) ID() string {
 }
 
 func (p *GeminiProvider) Authenticate() error {
+	// Try loading existing token/key from store first.
 	key, err := p.store.Get(p.name)
-	if err != nil {
-		return fmt.Errorf("gemini authenticate: %w", err)
+	if err == nil && key != "" {
+		p.apiKey = key
+		return nil
 	}
-	p.apiKey = key
-	return nil
+
+	// If OAuth, run the device flow to get a token.
+	if p.authMethod == "oauth" && p.oauthCfg != nil {
+		token, err := auth.RunDeviceFlow(*p.oauthCfg, p.store)
+		if err != nil {
+			return fmt.Errorf("gemini oauth: %w", err)
+		}
+		p.apiKey = token
+		_ = p.store.Set(p.name, token)
+		return nil
+	}
+
+	return fmt.Errorf("gemini authenticate: no credentials found for %q — run 'polycode auth login %s'", p.name, p.name)
 }
 
 func (p *GeminiProvider) Validate() error {
@@ -111,14 +136,24 @@ func (p *GeminiProvider) Query(ctx context.Context, messages []Message, opts Que
 		return nil, fmt.Errorf("gemini: marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/%s:streamGenerateContent?alt=sse&key=%s", geminiBaseURL, p.model, p.apiKey)
+	var reqURL string
+	if p.authMethod == "oauth" {
+		// OAuth uses Bearer header, no key in URL
+		reqURL = fmt.Sprintf("%s/%s:streamGenerateContent?alt=sse", p.baseURL, p.model)
+	} else {
+		// API key goes in the URL query parameter
+		reqURL = fmt.Sprintf("%s/%s:streamGenerateContent?alt=sse&key=%s", p.baseURL, p.model, p.apiKey)
+	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(body)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, strings.NewReader(string(body)))
 	if err != nil {
 		return nil, fmt.Errorf("gemini: create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	if p.authMethod == "oauth" {
+		req.Header.Set("Authorization", "Bearer "+p.apiKey)
+	}
 
 	resp, err := p.client.Do(req)
 	if err != nil {
