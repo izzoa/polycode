@@ -139,6 +139,22 @@ Expected assets:
 - `polycode_<version>_windows_amd64.zip`
 - `checksums.txt`
 
+## Understanding CI Artifacts vs Releases
+
+**CI artifacts** (from the CI workflow on every push) are temporary build outputs:
+- Found at: Actions → CI run → Summary → Artifacts (bottom of page)
+- These are raw binaries, not versioned packages
+- They expire after 90 days
+- They do NOT appear in the "Releases" or "Packages" sidebar on the repo
+
+**GitHub Releases** (from the Release workflow on version tags) are permanent, versioned distributions:
+- Found at: the repo's "Releases" sidebar, or `https://github.com/<owner>/polycode/releases`
+- Created by GoReleaser with proper archives (tar.gz/zip), checksums, and changelogs
+- These are what users download to install polycode
+- Only created when you push a `v*` tag (e.g., `git tag v0.1.0 && git push origin v0.1.0`)
+
+**If the repo says "No releases published"** — you need to cut a release by tagging. CI passing alone does not create a release.
+
 ## Hotfix Release
 
 If a release has a critical bug:
