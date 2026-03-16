@@ -1,0 +1,83 @@
+package provider
+
+import (
+	"context"
+)
+
+// Role represents a message role in a conversation.
+type Role string
+
+const (
+	RoleUser      Role = "user"
+	RoleAssistant Role = "assistant"
+	RoleSystem    Role = "system"
+)
+
+// Message represents a single message in a conversation.
+type Message struct {
+	Role    Role   `json:"role"`
+	Content string `json:"content"`
+}
+
+// StreamChunk represents a single chunk of a streaming response.
+type StreamChunk struct {
+	// Delta is the incremental text content.
+	Delta string
+	// Done indicates this is the final chunk.
+	Done bool
+	// ToolCalls contains any tool calls emitted in the final chunk.
+	// Only populated when Done is true and the model requested tool use.
+	ToolCalls []ToolCall
+	// InputTokens is the total input tokens for this request.
+	// Only populated when Done is true.
+	InputTokens int
+	// OutputTokens is the total output tokens for this response.
+	// Only populated when Done is true.
+	OutputTokens int
+	// Error is set if the provider encountered an error.
+	Error error
+}
+
+// ToolCall represents a tool invocation from the model.
+type ToolCall struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// ToolDefinition defines a tool the model can call.
+type ToolDefinition struct {
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	Parameters  interface{} `json:"parameters"`
+}
+
+// QueryOpts holds options for a query.
+type QueryOpts struct {
+	MaxTokens   int              `json:"max_tokens,omitempty"`
+	Temperature float64          `json:"temperature,omitempty"`
+	Tools       []ToolDefinition `json:"tools,omitempty"`
+}
+
+// Provider is the interface that all LLM provider adapters must implement.
+type Provider interface {
+	// ID returns the unique identifier for this provider (from config name).
+	ID() string
+
+	// Query sends messages to the provider and returns a channel of streaming chunks.
+	Query(ctx context.Context, messages []Message, opts QueryOpts) (<-chan StreamChunk, error)
+
+	// Authenticate performs any necessary authentication (API key validation, OAuth flow).
+	Authenticate() error
+
+	// Validate checks that the provider is reachable and properly configured.
+	Validate() error
+}
+
+// Response represents a complete response from a single provider.
+type Response struct {
+	ProviderID string
+	Content    string
+	ToolCalls  []ToolCall
+	Error      error
+}
