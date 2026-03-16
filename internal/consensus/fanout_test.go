@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthonyizzo/polycode/internal/provider"
+	"github.com/izzoa/polycode/internal/provider"
 )
 
 // mockProvider implements provider.Provider for testing.

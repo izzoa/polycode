@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthonyizzo/polycode/internal/provider"
-	"github.com/anthonyizzo/polycode/internal/tokens"
+	"github.com/izzoa/polycode/internal/provider"
+	"github.com/izzoa/polycode/internal/tokens"
 )
 
 // Pipeline orchestrates the full consensus workflow: fan-out query to all

@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/anthonyizzo/polycode/internal/auth"
+	"github.com/izzoa/polycode/internal/auth"
 )
 
 const geminiBaseURL = "https://generativelanguage.googleapis.com/v1beta/models"

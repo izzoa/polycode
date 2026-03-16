@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/anthonyizzo/polycode/internal/auth"
+	"github.com/izzoa/polycode/internal/auth"
 )
 
 const openaiAPIURL = "https://api.openai.com/v1/chat/completions"

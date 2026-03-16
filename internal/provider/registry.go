@@ -3,8 +3,8 @@ package provider
 import (
 	"fmt"
 
-	"github.com/anthonyizzo/polycode/internal/auth"
-	"github.com/anthonyizzo/polycode/internal/config"
+	"github.com/izzoa/polycode/internal/auth"
+	"github.com/izzoa/polycode/internal/config"
 )
 
 // Registry holds all configured providers and provides access to them.

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/anthonyizzo/polycode/internal/config"
+	"github.com/izzoa/polycode/internal/config"
 	"github.com/zalando/go-keyring"
 )
 

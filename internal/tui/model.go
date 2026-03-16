@@ -11,7 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/anthonyizzo/polycode/internal/config"
+	"github.com/izzoa/polycode/internal/config"
 )
 
 // viewMode represents which screen the TUI is currently showing.

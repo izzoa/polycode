@@ -10,12 +10,12 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/anthonyizzo/polycode/internal/action"
-	"github.com/anthonyizzo/polycode/internal/config"
-	"github.com/anthonyizzo/polycode/internal/consensus"
-	"github.com/anthonyizzo/polycode/internal/provider"
-	"github.com/anthonyizzo/polycode/internal/tokens"
-	"github.com/anthonyizzo/polycode/internal/tui"
+	"github.com/izzoa/polycode/internal/action"
+	"github.com/izzoa/polycode/internal/config"
+	"github.com/izzoa/polycode/internal/consensus"
+	"github.com/izzoa/polycode/internal/provider"
+	"github.com/izzoa/polycode/internal/tokens"
+	"github.com/izzoa/polycode/internal/tui"
 )
 
 // conversationState maintains the full multi-turn dialogue context.

@@ -8,8 +8,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/anthonyizzo/polycode/internal/auth"
-	"github.com/anthonyizzo/polycode/internal/config"
+	"github.com/izzoa/polycode/internal/auth"
+	"github.com/izzoa/polycode/internal/config"
 )
 
 // ConfigChangedMsg is sent when the config has been modified by the settings

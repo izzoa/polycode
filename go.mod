@@ -1,4 +1,4 @@
-module github.com/anthonyizzo/polycode
+module github.com/izzoa/polycode
 
 go 1.26.1
 

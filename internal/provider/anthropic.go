@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/anthonyizzo/polycode/internal/auth"
+	"github.com/izzoa/polycode/internal/auth"
 )
 
 const anthropicAPIURL = "https://api.anthropic.com/v1/messages"

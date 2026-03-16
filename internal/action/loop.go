@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/anthonyizzo/polycode/internal/provider"
+	"github.com/izzoa/polycode/internal/provider"
 )
 
 const maxIterations = 10

@@ -6,8 +6,8 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/anthonyizzo/polycode/internal/auth"
-	"github.com/anthonyizzo/polycode/internal/tokens"
+	"github.com/izzoa/polycode/internal/auth"
+	"github.com/izzoa/polycode/internal/tokens"
 )
 
 // Messages for TUI updates from the query pipeline.

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthonyizzo/polycode/internal/provider"
+	"github.com/izzoa/polycode/internal/provider"
 )
 
 // Engine drives the consensus synthesis step. It takes the collected responses

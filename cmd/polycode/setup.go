@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/anthonyizzo/polycode/internal/config"
+	"github.com/izzoa/polycode/internal/config"
 )
 
 func loadConfig() (*config.Config, error) {

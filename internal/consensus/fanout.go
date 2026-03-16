@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anthonyizzo/polycode/internal/provider"
-	"github.com/anthonyizzo/polycode/internal/tokens"
+	"github.com/izzoa/polycode/internal/provider"
+	"github.com/izzoa/polycode/internal/tokens"
 )
 
 // FanOutResult holds the collected responses and errors from a fan-out query

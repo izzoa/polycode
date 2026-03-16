@@ -107,13 +107,13 @@ The consensus output can drive coding actions, just like single-model assistants
 ### From source
 
 ```bash
-go install github.com/anthonyizzo/polycode/cmd/polycode@latest
+go install github.com/izzoa/polycode/cmd/polycode@latest
 ```
 
 ### Build from repo
 
 ```bash
-git clone https://github.com/anthonyizzo/polycode.git
+git clone https://github.com/izzoa/polycode.git
 cd polycode
 go build -o polycode ./cmd/polycode/
 ```

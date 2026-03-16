@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/anthonyizzo/polycode/internal/provider"
+	"github.com/izzoa/polycode/internal/provider"
 )
 
 // ToolResult holds the outcome of executing a single tool call.

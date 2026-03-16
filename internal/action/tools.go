@@ -1,6 +1,6 @@
 package action
 
-import "github.com/anthonyizzo/polycode/internal/provider"
+import "github.com/izzoa/polycode/internal/provider"
 
 // FileReadTool returns a ToolDefinition for reading files.
 func FileReadTool() provider.ToolDefinition {

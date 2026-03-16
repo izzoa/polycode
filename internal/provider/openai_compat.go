@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/anthonyizzo/polycode/internal/auth"
-	"github.com/anthonyizzo/polycode/internal/config"
+	"github.com/izzoa/polycode/internal/auth"
+	"github.com/izzoa/polycode/internal/config"
 )
 
 // OpenAICompatProvider implements Provider for OpenAI-compatible APIs with a
