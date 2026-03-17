@@ -119,6 +119,9 @@ type Model struct {
 	showSplash bool
 	version    string
 
+	// Operating mode
+	currentMode string // "quick", "balanced", "thorough"
+
 	// Action confirmation
 	confirmPending     bool
 	confirmDescription string
@@ -175,6 +178,8 @@ type Model struct {
 	onSubmit        func(prompt string)
 	onClear         func()
 	onPlan          func(request string)
+	onModeChange    func(mode string)
+	onMemory        func(args string)
 	onConfigChanged func(*config.Config)
 	onTestProvider  func(providerName string)
 }
@@ -270,6 +275,7 @@ func NewModel(providerNames []string, primaryName string, version string) Model 
 		chatView:       chatVP,
 		showSplash:     true,
 		version:        version,
+		currentMode:    "balanced",
 		showIndividual: true,
 		spinner:        sp,
 		history:        []Exchange{},
@@ -298,6 +304,16 @@ func (m *Model) SetClearHandler(handler func()) {
 // SetPlanHandler sets the callback for when the user runs /plan.
 func (m *Model) SetPlanHandler(handler func(request string)) {
 	m.onPlan = handler
+}
+
+// SetModeChangeHandler sets the callback for /mode command.
+func (m *Model) SetModeChangeHandler(handler func(mode string)) {
+	m.onModeChange = handler
+}
+
+// SetMemoryHandler sets the callback for /memory command.
+func (m *Model) SetMemoryHandler(handler func(args string)) {
+	m.onMemory = handler
 }
 
 // AppendHistory adds an exchange to the display history (used for session restore).

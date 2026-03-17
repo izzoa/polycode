@@ -203,6 +203,8 @@ func (m Model) renderHelp() string {
 		{"/settings", "Open settings (type in input)"},
 		{"/clear", "Clear conversation and reset context"},
 		{"/plan <request>", "Run multi-model agent team pipeline"},
+		{"/mode <name>", "Switch mode: quick, balanced, thorough"},
+		{"/memory", "View repo memory"},
 		{"Tab", "Toggle individual provider panels"},
 		{"p", "Toggle consensus provenance panel"},
 		{"Enter", "Submit prompt / advance wizard step"},
@@ -253,6 +255,12 @@ func (m Model) renderHelp() string {
 func (m Model) renderStatusBar() string {
 	var parts []string
 	parts = append(parts, m.styles.Title.Render("polycode"))
+	if m.currentMode != "" {
+		modeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
+		parts = append(parts, m.styles.Dimmed.Render(" ["))
+		parts = append(parts, modeStyle.Render(m.currentMode))
+		parts = append(parts, m.styles.Dimmed.Render("]"))
+	}
 	parts = append(parts, m.styles.Dimmed.Render(" | "))
 
 	for i, panel := range m.panels {

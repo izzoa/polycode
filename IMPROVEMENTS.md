@@ -93,16 +93,16 @@ Prioritized phases for making polycode a production-ready, differentiated multi-
 
 ### Tasks
 
-- [ ] Define telemetry schema needed for routing decisions: task type, provider, latency, token cost, quality signal (user accepted/rejected), error rate
-- [ ] Implement heuristic router: choose providers per task based on type (debug → models good at debugging, review → models good at review) using historical data
-- [ ] Add operating modes that users can switch between:
+- [x] Define telemetry schema needed for routing decisions: task type, provider, latency, token cost, quality signal (user accepted/rejected), error rate
+- [x] Implement heuristic router: choose providers per task based on type (debug → models good at debugging, review → models good at review) using historical data
+- [x] Add operating modes that users can switch between:
   - `quick` — primary model only, no consensus (lowest cost/latency)
   - `balanced` — primary + one secondary, consensus synthesis (default)
   - `thorough` — all providers, full consensus + verifier lane
-- [ ] Implement repo memory (`~/.config/polycode/memory/`): build commands, test commands, architecture notes, preferred patterns, provider performance by domain
-- [ ] Add instruction hierarchy: repo-level (`.polycode/instructions.md`) > user-level (`~/.config/polycode/instructions.md`) > session-level
-- [ ] Make repo memory editable and inspectable via `/memory` command or settings screen
-- [ ] Add periodic full-consensus fallback: even in `quick` mode, occasionally run full consensus to recalibrate routing
+- [x] Implement repo memory (`~/.config/polycode/memory/`): build commands, test commands, architecture notes, preferred patterns, provider performance by domain
+- [x] Add instruction hierarchy: repo-level (`.polycode/instructions.md`) > user-level (`~/.config/polycode/instructions.md`) > session-level
+- [x] Make repo memory editable and inspectable via `/memory` command or settings screen
+- [x] Add periodic full-consensus fallback: even in `quick` mode, occasionally run full consensus to recalibrate routing
 
 ### Validation Gates
 

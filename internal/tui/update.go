@@ -60,6 +60,16 @@ type ConsensusAnalysisMsg struct {
 	Evidence    []string
 }
 
+// ModeChangedMsg updates the current operating mode display.
+type ModeChangedMsg struct {
+	Mode string // "quick", "balanced", "thorough"
+}
+
+// MemoryDisplayMsg shows memory contents in the chat.
+type MemoryDisplayMsg struct {
+	Content string
+}
+
 // WorkerProgressMsg updates a worker's status in the TUI during /plan execution.
 type WorkerProgressMsg struct {
 	StageName    string
@@ -95,6 +105,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.consensusContent.WriteString("\n" + msg.Description + "\n")
 		m.consensusView.SetContent(m.consensusContent.String())
 		m.consensusView.GotoBottom()
+		return m, nil
+
+	case ModeChangedMsg:
+		m.currentMode = msg.Mode
+		return m, nil
+
+	case MemoryDisplayMsg:
+		// Show memory content in the chat view
+		m.consensusContent.Reset()
+		m.consensusContent.WriteString(msg.Content)
+		m.consensusView.SetContent(m.consensusContent.String())
+		m.consensusActive = true
 		return m, nil
 
 	case ConsensusAnalysisMsg:
@@ -374,6 +396,25 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 					m.settingsCursor = 0
 					m.confirmDelete = false
 					m.settingsMsg = ""
+					return m, nil
+				}
+				if strings.HasPrefix(prompt, "/mode ") {
+					modeName := strings.TrimSpace(strings.TrimPrefix(prompt, "/mode "))
+					m.textarea.Reset()
+					switch modeName {
+					case "quick", "balanced", "thorough":
+						m.currentMode = modeName
+						if m.onModeChange != nil {
+							m.onModeChange(modeName)
+						}
+					}
+					return m, nil
+				}
+				if strings.HasPrefix(prompt, "/memory") {
+					m.textarea.Reset()
+					if m.onMemory != nil {
+						m.onMemory(strings.TrimSpace(strings.TrimPrefix(prompt, "/memory")))
+					}
 					return m, nil
 				}
 				if strings.HasPrefix(prompt, "/plan ") {

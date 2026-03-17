@@ -58,6 +58,10 @@ type MetadataConfig struct {
 	CacheTTL    time.Duration `yaml:"-"`
 }
 
+type RoutingConfig struct {
+	CalibrationInterval int `yaml:"calibration_interval,omitempty"` // default 10
+}
+
 type RolesConfig struct {
 	Planner     string `yaml:"planner,omitempty"`
 	Researcher  string `yaml:"researcher,omitempty"`
@@ -67,11 +71,13 @@ type RolesConfig struct {
 }
 
 type Config struct {
-	Providers []ProviderConfig `yaml:"providers"`
-	Consensus ConsensusConfig  `yaml:"consensus"`
-	TUI       TUIConfig        `yaml:"tui"`
-	Metadata  MetadataConfig   `yaml:"metadata,omitempty"`
-	Roles     RolesConfig      `yaml:"roles,omitempty"`
+	Providers   []ProviderConfig `yaml:"providers"`
+	Consensus   ConsensusConfig  `yaml:"consensus"`
+	TUI         TUIConfig        `yaml:"tui"`
+	Metadata    MetadataConfig   `yaml:"metadata,omitempty"`
+	Roles       RolesConfig      `yaml:"roles,omitempty"`
+	Routing     RoutingConfig    `yaml:"routing,omitempty"`
+	DefaultMode string           `yaml:"mode,omitempty"`
 }
 
 func DefaultConfig() Config {
@@ -88,6 +94,10 @@ func DefaultConfig() Config {
 		Metadata: MetadataConfig{
 			CacheTTL: 24 * time.Hour,
 		},
+		Routing: RoutingConfig{
+			CalibrationInterval: 10,
+		},
+		DefaultMode: "balanced",
 	}
 }
 
