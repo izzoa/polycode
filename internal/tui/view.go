@@ -52,8 +52,11 @@ func (m Model) renderChat() string {
 		sections = append(sections, m.renderChatPanel())
 	}
 
-	// Provider panels (only during active query, toggled with Tab)
-	if m.querying && m.showIndividual && m.hasContent() {
+	// Worker progress (during /plan execution)
+	if m.planRunning && len(m.agentStages) > 0 {
+		sections = append(sections, m.renderWorkerProgress())
+	} else if m.querying && m.showIndividual && m.hasContent() {
+		// Provider panels (only during active query, toggled with Tab)
 		sections = append(sections, m.renderProviderPanels())
 	}
 
@@ -148,6 +151,41 @@ func (m Model) renderProvenance() string {
 	return style.Render(strings.Join(lines, "\n"))
 }
 
+// renderWorkerProgress renders the agent team progress panel during /plan.
+func (m Model) renderWorkerProgress() string {
+	style := m.styles.ConsensusBorder.Width(m.width - 4)
+
+	var lines []string
+	title := m.styles.Title.Render("Agent Team")
+	lines = append(lines, title)
+
+	for _, stage := range m.agentStages {
+		for _, w := range stage.Workers {
+			var icon string
+			switch w.Status {
+			case "complete":
+				icon = m.styles.StatusHealthy.Render("✓")
+			case "running":
+				icon = m.spinner.View()
+			default:
+				icon = m.styles.Dimmed.Render("○")
+			}
+
+			line := fmt.Sprintf("  %s %s (%s)", icon, w.Role, w.Provider)
+			if w.Summary != "" {
+				summary := w.Summary
+				if len(summary) > 60 {
+					summary = summary[:57] + "..."
+				}
+				line += " — " + m.styles.Dimmed.Render(summary)
+			}
+			lines = append(lines, line)
+		}
+	}
+
+	return style.Render(strings.Join(lines, "\n"))
+}
+
 // renderHelp renders the help overlay showing all keyboard shortcuts.
 func (m Model) renderHelp() string {
 	var sections []string
@@ -164,6 +202,7 @@ func (m Model) renderHelp() string {
 		{"Ctrl+S", "Open settings"},
 		{"/settings", "Open settings (type in input)"},
 		{"/clear", "Clear conversation and reset context"},
+		{"/plan <request>", "Run multi-model agent team pipeline"},
 		{"Tab", "Toggle individual provider panels"},
 		{"p", "Toggle consensus provenance panel"},
 		{"Enter", "Submit prompt / advance wizard step"},

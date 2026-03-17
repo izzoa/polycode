@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/izzoa/polycode/internal/action"
+	"github.com/izzoa/polycode/internal/agent"
 	"github.com/izzoa/polycode/internal/config"
 	"github.com/izzoa/polycode/internal/consensus"
 	"github.com/izzoa/polycode/internal/provider"
@@ -263,6 +264,116 @@ func startTUI(cfg *config.Config) error {
 				Success:      true,
 				Duration:     time.Since(start).Truncate(time.Millisecond).String(),
 			})
+		}()
+	})
+
+	// Set up /plan handler for agent team pipeline
+	model.SetPlanHandler(func(request string) {
+		go func() {
+			program.Send(tui.QueryStartMsg{})
+
+			// Resolve providers for each role
+			roleProviders := map[agent.RoleType]string{
+				agent.RolePlanner:     cfg.Roles.Planner,
+				agent.RoleResearcher:  cfg.Roles.Researcher,
+				agent.RoleImplementer: cfg.Roles.Implementer,
+				agent.RoleTester:      cfg.Roles.Tester,
+				agent.RoleReviewer:    cfg.Roles.Reviewer,
+			}
+
+			resolveProvider := func(role agent.RoleType) provider.Provider {
+				name := roleProviders[role]
+				if name != "" {
+					for _, p := range registry.Providers() {
+						if p.ID() == name {
+							return p
+						}
+					}
+				}
+				return primary
+			}
+
+			// Build default pipeline: planner → researcher → reviewer
+			graph := &agent.TaskGraph{
+				JobID: fmt.Sprintf("plan_%d", time.Now().Unix()),
+				Stages: []agent.Stage{
+					{
+						Name: "Planning",
+						Workers: []*agent.Worker{{
+							Role:         agent.RolePlanner,
+							ProviderName: resolveProvider(agent.RolePlanner).ID(),
+							Provider:     resolveProvider(agent.RolePlanner),
+							SystemPrompt: agent.RolePrompts[agent.RolePlanner],
+							MaxTokens:    4096,
+						}},
+					},
+					{
+						Name: "Research",
+						Workers: []*agent.Worker{{
+							Role:         agent.RoleResearcher,
+							ProviderName: resolveProvider(agent.RoleResearcher).ID(),
+							Provider:     resolveProvider(agent.RoleResearcher),
+							SystemPrompt: agent.RolePrompts[agent.RoleResearcher],
+							MaxTokens:    4096,
+						}},
+					},
+					{
+						Name: "Review",
+						Workers: []*agent.Worker{{
+							Role:         agent.RoleReviewer,
+							ProviderName: resolveProvider(agent.RoleReviewer).ID(),
+							Provider:     resolveProvider(agent.RoleReviewer),
+							SystemPrompt: agent.RolePrompts[agent.RoleReviewer],
+							MaxTokens:    4096,
+						}},
+					},
+				},
+			}
+
+			ctx := context.Background()
+
+			result, err := graph.Run(ctx, request, func(sr agent.StageResult) {
+				// Update TUI with stage completion
+				for role, output := range sr.WorkerOutputs {
+					summary := output
+					if len(summary) > 100 {
+						summary = summary[:97] + "..."
+					}
+					program.Send(tui.WorkerProgressMsg{
+						StageName:    sr.StageName,
+						Role:         string(role),
+						ProviderName: "", // could resolve but not critical
+						Status:       "complete",
+						Summary:      summary,
+					})
+				}
+			})
+
+			if err != nil {
+				program.Send(tui.PlanDoneMsg{Error: err})
+			} else if result != nil && len(result.Stages) > 0 {
+				// Use the last stage's output as the final answer
+				lastStage := result.Stages[len(result.Stages)-1]
+				var finalOutput string
+				for _, output := range lastStage.WorkerOutputs {
+					finalOutput = output
+				}
+				program.Send(tui.PlanDoneMsg{FinalOutput: finalOutput})
+
+				// Append to conversation
+				conv.append(provider.Message{
+					Role:    provider.RoleUser,
+					Content: "/plan " + request,
+				})
+				conv.append(provider.Message{
+					Role:    provider.RoleAssistant,
+					Content: finalOutput,
+				})
+			} else {
+				program.Send(tui.PlanDoneMsg{Error: fmt.Errorf("plan produced no output")})
+			}
+
+			program.Send(tui.QueryDoneMsg{})
 		}()
 	})
 

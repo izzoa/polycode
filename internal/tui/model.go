@@ -66,6 +66,20 @@ type tokenDisplay struct {
 	HasData bool    // false if provider reported zero usage
 }
 
+// agentWorkerDisplay holds display info for a single worker in a /plan job.
+type agentWorkerDisplay struct {
+	Role     string
+	Provider string
+	Status   string // "pending", "running", "complete"
+	Summary  string
+}
+
+// agentStageDisplay holds display info for a stage in a /plan job.
+type agentStageDisplay struct {
+	Name    string
+	Workers []agentWorkerDisplay
+}
+
 // Exchange represents a completed prompt/response pair in history.
 type Exchange struct {
 	Prompt             string
@@ -113,6 +127,10 @@ type Model struct {
 	// Tool execution status
 	toolStatus string // e.g., "Reading main.go..." — shown in consensus panel during tool exec
 
+	// Agent team (/plan) state
+	planRunning bool
+	agentStages []agentStageDisplay
+
 	// State
 	showIndividual bool
 	querying       bool
@@ -156,6 +174,7 @@ type Model struct {
 	// Callbacks (set by the app layer)
 	onSubmit        func(prompt string)
 	onClear         func()
+	onPlan          func(request string)
 	onConfigChanged func(*config.Config)
 	onTestProvider  func(providerName string)
 }
@@ -274,6 +293,11 @@ func (m *Model) SetSubmitHandler(handler func(prompt string)) {
 // SetClearHandler sets the callback for when the user runs /clear.
 func (m *Model) SetClearHandler(handler func()) {
 	m.onClear = handler
+}
+
+// SetPlanHandler sets the callback for when the user runs /plan.
+func (m *Model) SetPlanHandler(handler func(request string)) {
+	m.onPlan = handler
 }
 
 // AppendHistory adds an exchange to the display history (used for session restore).

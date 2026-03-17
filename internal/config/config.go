@@ -58,11 +58,20 @@ type MetadataConfig struct {
 	CacheTTL    time.Duration `yaml:"-"`
 }
 
+type RolesConfig struct {
+	Planner     string `yaml:"planner,omitempty"`
+	Researcher  string `yaml:"researcher,omitempty"`
+	Implementer string `yaml:"implementer,omitempty"`
+	Tester      string `yaml:"tester,omitempty"`
+	Reviewer    string `yaml:"reviewer,omitempty"`
+}
+
 type Config struct {
 	Providers []ProviderConfig `yaml:"providers"`
 	Consensus ConsensusConfig  `yaml:"consensus"`
 	TUI       TUIConfig        `yaml:"tui"`
 	Metadata  MetadataConfig   `yaml:"metadata,omitempty"`
+	Roles     RolesConfig      `yaml:"roles,omitempty"`
 }
 
 func DefaultConfig() Config {

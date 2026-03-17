@@ -62,13 +62,13 @@ Prioritized phases for making polycode a production-ready, differentiated multi-
 
 ### Tasks
 
-- [ ] Define the worker contract: each worker has a role, a provider assignment, its own context window, an input schema, and an output schema
-- [ ] Implement role types: `planner`, `researcher`, `implementer`, `tester`, `reviewer` — each with a tailored system prompt
-- [ ] Build a task graph executor: sequential and parallel branches, merge semantics, iteration limits per branch, and budget caps
-- [ ] Start with a minimal pipeline: `planner → researcher → reviewer` before adding implementer/tester
-- [ ] Persist worker checkpoints so interrupted jobs can resume without replaying everything
-- [ ] Expose worker progress, branch outputs, and merge decisions in the TUI (new view mode or panel)
-- [ ] Allow users to configure which provider handles which role via config:
+- [x] Define the worker contract: each worker has a role, a provider assignment, its own context window, an input schema, and an output schema
+- [x] Implement role types: `planner`, `researcher`, `implementer`, `tester`, `reviewer` — each with a tailored system prompt
+- [x] Build a task graph executor: sequential and parallel branches, merge semantics, iteration limits per branch, and budget caps
+- [x] Start with a minimal pipeline: `planner → researcher → reviewer` before adding implementer/tester
+- [x] Persist worker checkpoints so interrupted jobs can resume without replaying everything
+- [x] Expose worker progress, branch outputs, and merge decisions in the TUI (new view mode or panel)
+- [x] Allow users to configure which provider handles which role via config:
   ```yaml
   roles:
     planner: claude
@@ -76,7 +76,7 @@ Prioritized phases for making polycode a production-ready, differentiated multi-
     implementer: claude
     reviewer: gpt4
   ```
-- [ ] Isolate large-output work to workers instead of the main conversation to keep context growth bounded
+- [x] Isolate large-output work to workers instead of the main conversation to keep context growth bounded
 
 ### Validation Gates
 

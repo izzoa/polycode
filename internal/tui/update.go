@@ -60,6 +60,21 @@ type ConsensusAnalysisMsg struct {
 	Evidence    []string
 }
 
+// WorkerProgressMsg updates a worker's status in the TUI during /plan execution.
+type WorkerProgressMsg struct {
+	StageName    string
+	Role         string
+	ProviderName string
+	Status       string // "pending", "running", "complete"
+	Summary      string // one-line summary of output (set when complete)
+}
+
+// PlanDoneMsg signals that a /plan job has completed.
+type PlanDoneMsg struct {
+	FinalOutput string
+	Error       error
+}
+
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
@@ -87,6 +102,56 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.consensusAgreements = msg.Agreements
 		m.minorityReports = msg.Minorities
 		m.consensusEvidence = msg.Evidence
+		return m, nil
+
+	case WorkerProgressMsg:
+		// Update or add the worker in agentStages
+		found := false
+		for i, s := range m.agentStages {
+			if s.Name == msg.StageName {
+				for j, w := range s.Workers {
+					if w.Role == msg.Role {
+						m.agentStages[i].Workers[j].Status = msg.Status
+						m.agentStages[i].Workers[j].Summary = msg.Summary
+						found = true
+						break
+					}
+				}
+				if !found {
+					m.agentStages[i].Workers = append(m.agentStages[i].Workers, agentWorkerDisplay{
+						Role:     msg.Role,
+						Provider: msg.ProviderName,
+						Status:   msg.Status,
+						Summary:  msg.Summary,
+					})
+					found = true
+				}
+				break
+			}
+		}
+		if !found {
+			m.agentStages = append(m.agentStages, agentStageDisplay{
+				Name: msg.StageName,
+				Workers: []agentWorkerDisplay{{
+					Role:     msg.Role,
+					Provider: msg.ProviderName,
+					Status:   msg.Status,
+					Summary:  msg.Summary,
+				}},
+			})
+		}
+		return m, nil
+
+	case PlanDoneMsg:
+		m.planRunning = false
+		if msg.Error != nil {
+			m.consensusContent.WriteString("\n[Plan Error: " + msg.Error.Error() + "]")
+		} else if msg.FinalOutput != "" {
+			m.consensusContent.WriteString(msg.FinalOutput)
+		}
+		m.consensusView.SetContent(m.consensusContent.String())
+		m.consensusView.GotoBottom()
+		m.consensusActive = true
 		return m, nil
 
 	case tea.KeyMsg:
@@ -309,6 +374,17 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 					m.settingsCursor = 0
 					m.confirmDelete = false
 					m.settingsMsg = ""
+					return m, nil
+				}
+				if strings.HasPrefix(prompt, "/plan ") {
+					request := strings.TrimPrefix(prompt, "/plan ")
+					m.textarea.Reset()
+					m.currentPrompt = prompt
+					m.planRunning = true
+					m.agentStages = nil
+					if m.onPlan != nil {
+						m.onPlan(request)
+					}
 					return m, nil
 				}
 				if strings.HasPrefix(prompt, "/clear") {
