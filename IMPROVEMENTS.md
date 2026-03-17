@@ -119,14 +119,14 @@ Prioritized phases for making polycode a production-ready, differentiated multi-
 
 ### Tasks
 
-- [ ] Implement MCP (Model Context Protocol) server support: allow polycode to connect to external tool servers
-- [ ] Add a hook system: pre-commit, post-query, on-error hooks that run user-defined shell commands
+- [x] Implement MCP (Model Context Protocol) server support: allow polycode to connect to external tool servers
+- [x] Add a hook system: pre-commit, post-query, on-error hooks that run user-defined shell commands
 - [ ] Add skill/plugin packages: installable extensions that add new slash commands or tool definitions
-- [ ] Design and implement a permission model: per-tool approval policies (always allow, always ask, deny), scoped by repo/user
-- [ ] Add `polycode ci` mode: headless agent that runs in CI, reviews PRs, posts consensus findings as PR comments
-- [ ] Implement session sharing: export a consensus trace as a shareable artifact (JSON or markdown) so teammates can see the multi-model review
-- [ ] Add a minimal editor bridge: VS Code extension or LSP server that sends selections/files to the polycode TUI
-- [ ] Ship replayable review artifacts so teams can compare model ensembles over time
+- [x] Design and implement a permission model: per-tool approval policies (always allow, always ask, deny), scoped by repo/user
+- [x] Add `polycode ci` mode: headless agent that runs in CI, reviews PRs, posts consensus findings as PR comments
+- [x] Implement session sharing: export a consensus trace as a shareable artifact (JSON or markdown) so teammates can see the multi-model review
+- [x] Add a minimal editor bridge: VS Code extension or LSP server that sends selections/files to the polycode TUI
+- [x] Ship replayable review artifacts so teams can compare model ensembles over time
 
 ### Validation Gates
 

@@ -70,6 +70,27 @@ type RolesConfig struct {
 	Reviewer    string `yaml:"reviewer,omitempty"`
 }
 
+// MCPServerConfig defines an external MCP server to connect to.
+type MCPServerConfig struct {
+	Name    string   `yaml:"name"`
+	Command string   `yaml:"command,omitempty"` // for stdio transport
+	Args    []string `yaml:"args,omitempty"`
+	URL     string   `yaml:"url,omitempty"` // for SSE transport
+}
+
+// MCPConfig holds MCP client configuration.
+type MCPConfig struct {
+	Servers []MCPServerConfig `yaml:"servers,omitempty"`
+}
+
+// HooksConfig defines shell commands to run at lifecycle events.
+type HooksConfig struct {
+	PreQuery  string `yaml:"pre_query,omitempty"`
+	PostQuery string `yaml:"post_query,omitempty"`
+	PostTool  string `yaml:"post_tool,omitempty"`
+	OnError   string `yaml:"on_error,omitempty"`
+}
+
 type Config struct {
 	Providers   []ProviderConfig `yaml:"providers"`
 	Consensus   ConsensusConfig  `yaml:"consensus"`
@@ -77,7 +98,9 @@ type Config struct {
 	Metadata    MetadataConfig   `yaml:"metadata,omitempty"`
 	Roles       RolesConfig      `yaml:"roles,omitempty"`
 	Routing     RoutingConfig    `yaml:"routing,omitempty"`
+	Hooks       HooksConfig      `yaml:"hooks,omitempty"`
 	DefaultMode string           `yaml:"mode,omitempty"`
+	MCP         MCPConfig        `yaml:"mcp,omitempty"`
 }
 
 func DefaultConfig() Config {
@@ -114,7 +137,11 @@ func ConfigPath() string {
 }
 
 func Load() (*Config, error) {
-	path := ConfigPath()
+	return LoadFrom(ConfigPath())
+}
+
+// LoadFrom reads and parses a config file from the given path.
+func LoadFrom(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {

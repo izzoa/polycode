@@ -66,6 +66,43 @@ func main() {
 	reviewCmd.Flags().Bool("comment", false, "Post review as PR comment (requires --pr)")
 	rootCmd.AddCommand(reviewCmd)
 
+	// Serve command (editor bridge)
+	serveCmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Start HTTP server for editor integration",
+		RunE:  runServe,
+	}
+	serveCmd.Flags().Int("port", 9876, "Port to listen on")
+	rootCmd.AddCommand(serveCmd)
+
+	// CI command
+	ciCmd := &cobra.Command{
+		Use:   "ci",
+		Short: "Run automated PR review in CI environments",
+		RunE:  runCI,
+	}
+	ciCmd.Flags().Int("pr", 0, "GitHub PR number to review")
+	rootCmd.AddCommand(ciCmd)
+
+	// Export command
+	exportCmd := &cobra.Command{
+		Use:   "export",
+		Short: "Export current session as a shareable artifact",
+		RunE:  runExport,
+	}
+	exportCmd.Flags().String("format", "md", "Output format: md or json")
+	exportCmd.Flags().String("output", "", "Output file path (default: stdout)")
+	rootCmd.AddCommand(exportCmd)
+
+	// Import command
+	importCmd := &cobra.Command{
+		Use:   "import <file>",
+		Short: "Import a previously exported session",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runImport,
+	}
+	rootCmd.AddCommand(importCmd)
+
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
