@@ -1,15 +1,14 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/huh"
 	"github.com/izzoa/polycode/internal/auth"
 	"github.com/izzoa/polycode/internal/config"
 	"github.com/izzoa/polycode/internal/provider"
@@ -33,7 +32,6 @@ func loadConfig() (*config.Config, error) {
 }
 
 func runSetupWizard() error {
-	reader := bufio.NewReader(os.Stdin)
 	cfg := config.DefaultConfig()
 
 	// Try to create a MetadataStore for model listing
@@ -46,51 +44,72 @@ func runSetupWizard() error {
 	fmt.Println("Let's configure your first LLM provider.")
 	fmt.Println()
 
-	// Provider type selection
-	fmt.Println("Provider types: anthropic, openai, google, openai_compatible")
-	fmt.Print("Provider type: ")
-	provType, _ := reader.ReadString('\n')
-	provType = strings.TrimSpace(provType)
+	// Provider type — selectable list
+	var provType string
+	err := huh.NewSelect[string]().
+		Title("Provider type").
+		Options(
+			huh.NewOption("anthropic", "anthropic"),
+			huh.NewOption("openai", "openai"),
+			huh.NewOption("google", "google"),
+			huh.NewOption("openai_compatible", "openai_compatible"),
+		).
+		Value(&provType).
+		Run()
+	if err != nil {
+		return fmt.Errorf("setup cancelled: %w", err)
+	}
 
-	// Provider name
-	fmt.Print("Provider name (e.g., claude, gpt4): ")
-	name, _ := reader.ReadString('\n')
-	name = strings.TrimSpace(name)
+	// Provider name — text input
+	var name string
+	err = huh.NewInput().
+		Title("Provider name").
+		Placeholder("e.g., claude, gpt4").
+		Value(&name).
+		Run()
+	if err != nil {
+		return fmt.Errorf("setup cancelled: %w", err)
+	}
 
-	// Auth method — filtered by provider type (task 2.1)
+	// Auth method — selectable list filtered by provider type
 	pt := config.ProviderType(provType)
 	validAuths := config.AuthMethodsByType[pt]
+	var authInput string
 	if len(validAuths) > 0 {
-		var authStrs []string
-		for _, a := range validAuths {
-			authStrs = append(authStrs, string(a))
+		authOpts := make([]huh.Option[string], len(validAuths))
+		for i, a := range validAuths {
+			authOpts[i] = huh.NewOption(string(a), string(a))
 		}
-		fmt.Printf("Auth methods for %s: %s\n", provType, strings.Join(authStrs, ", "))
-		fmt.Printf("Auth method [%s]: ", authStrs[0])
-	} else {
-		fmt.Println("Auth methods: api_key, oauth, none")
-		fmt.Print("Auth method: ")
-	}
-	authInput, _ := reader.ReadString('\n')
-	authInput = strings.TrimSpace(authInput)
-	if authInput == "" && len(validAuths) > 0 {
-		authInput = string(validAuths[0])
+		err = huh.NewSelect[string]().
+			Title("Auth method").
+			Options(authOpts...).
+			Value(&authInput).
+			Run()
+		if err != nil {
+			return fmt.Errorf("setup cancelled: %w", err)
+		}
 	}
 
-	// API key entry + connection test (tasks 2.4, 2.5)
+	// API key — password input + connection test
 	var apiKey string
 	authMethod := config.AuthMethod(authInput)
 	if authMethod == config.AuthMethodAPIKey {
 		for {
-			fmt.Print("API key: ")
-			apiKeyInput, _ := reader.ReadString('\n')
-			apiKey = strings.TrimSpace(apiKeyInput)
+			apiKey = "" // reset for retry
+			err = huh.NewInput().
+				Title("API key").
+				EchoMode(huh.EchoModePassword).
+				Value(&apiKey).
+				Run()
+			if err != nil {
+				return fmt.Errorf("setup cancelled: %w", err)
+			}
 			if apiKey == "" {
 				break // user chose to skip
 			}
 
 			// Connection test
-			ok := testConnection(reader, name, provType, apiKey, authInput)
+			ok := testConnection(name, provType, apiKey, authInput)
 			if ok {
 				break
 			}
@@ -99,8 +118,8 @@ func runSetupWizard() error {
 		}
 	}
 
-	// Model selection (tasks 2.2, 2.3, 2.6)
-	model := selectModel(reader, provType, metadataStore)
+	// Model selection — filterable list from litellm or text input fallback
+	model := selectModel(provType, metadataStore)
 
 	p := config.ProviderConfig{
 		Name:    name,
@@ -110,10 +129,18 @@ func runSetupWizard() error {
 		Primary: true,
 	}
 
+	// Base URL — text input (only for openai_compatible)
 	if pt == config.ProviderTypeOpenAICompatible {
-		fmt.Print("Base URL (e.g., http://localhost:11434/v1): ")
-		baseURL, _ := reader.ReadString('\n')
-		p.BaseURL = strings.TrimSpace(baseURL)
+		var baseURL string
+		err = huh.NewInput().
+			Title("Base URL").
+			Placeholder("e.g., http://localhost:11434/v1").
+			Value(&baseURL).
+			Run()
+		if err != nil {
+			return fmt.Errorf("setup cancelled: %w", err)
+		}
+		p.BaseURL = baseURL
 	}
 
 	cfg.Providers = append(cfg.Providers, p)
@@ -138,8 +165,8 @@ func runSetupWizard() error {
 	return nil
 }
 
-// selectModel shows a numbered model list or falls back to text input.
-func selectModel(reader *bufio.Reader, provType string, store *tokens.MetadataStore) string {
+// selectModel shows a filterable model list from litellm or falls back to text input.
+func selectModel(provType string, store *tokens.MetadataStore) string {
 	var models []config.ModelSummary
 	if store != nil {
 		models = store.ModelsForProvider(provType)
@@ -148,94 +175,86 @@ func selectModel(reader *bufio.Reader, provType string, store *tokens.MetadataSt
 	pt := config.ProviderType(provType)
 	defaultModel := config.DefaultModelByType[pt]
 
-	// If no models available, fall back to text input (task 2.6)
+	// Fallback to text input when no models available
 	if len(models) == 0 {
-		hint := ""
-		if defaultModel != "" {
-			hint = fmt.Sprintf(" [%s]", defaultModel)
-		}
-		fmt.Printf("Model%s: ", hint)
-		model, _ := reader.ReadString('\n')
-		model = strings.TrimSpace(model)
+		var model string
+		huh.NewInput().
+			Title("Model").
+			Placeholder(modelHintForType(provType)).
+			Value(&model).
+			Run() //nolint:errcheck
 		if model == "" && defaultModel != "" {
 			return defaultModel
 		}
 		return model
 	}
 
-	// Limit to top 10 models
-	displayModels := models
-	if len(displayModels) > 10 {
-		displayModels = displayModels[:10]
-	}
+	// Build selectable options from litellm models
+	const customSentinel = "__custom__"
+	opts := make([]huh.Option[string], 0, len(models)+1)
 
-	fmt.Printf("\nAvailable models for %s:\n", provType)
-
-	// Find which one is the default to mark it
-	defaultIdx := -1
-	for i, m := range displayModels {
-		if m.Name == defaultModel {
-			defaultIdx = i
-			break
-		}
-	}
-
-	for i, m := range displayModels {
+	for _, m := range models {
+		label := m.Name
 		caps := config.FormatCapabilities(m)
-		tag := ""
-		if i == defaultIdx {
-			tag = "  [default]"
-		} else if i == 0 && defaultIdx == -1 {
-			tag = "  [default]"
-		}
-		capsStr := ""
 		if caps != "" {
-			capsStr = fmt.Sprintf("  (%s)", caps)
+			label += "  (" + caps + ")"
 		}
-		fmt.Printf("  %d. %-35s%s%s\n", i+1, m.Name, capsStr, tag)
+		opts = append(opts, huh.NewOption(label, m.Name))
 	}
-	fmt.Println("  0. Enter model name manually")
+	opts = append(opts, huh.NewOption("Custom model...", customSentinel))
 
-	// Default selection is the default model or first model (task 2.3)
-	defaultSelection := 1
-	if defaultIdx >= 0 {
-		defaultSelection = defaultIdx + 1
-	}
-
-	fmt.Printf("\nSelect model [%d]: ", defaultSelection)
-	choice, _ := reader.ReadString('\n')
-	choice = strings.TrimSpace(choice)
-
-	if choice == "" {
-		return displayModels[defaultSelection-1].Name
+	// Pre-select the default model
+	model := defaultModel
+	if model == "" && len(models) > 0 {
+		model = models[0].Name
 	}
 
-	if choice == "0" {
-		hint := ""
-		if defaultModel != "" {
-			hint = fmt.Sprintf(" [%s]", defaultModel)
-		}
-		fmt.Printf("Model name%s: ", hint)
-		model, _ := reader.ReadString('\n')
-		model = strings.TrimSpace(model)
-		if model == "" && defaultModel != "" {
+	huh.NewSelect[string]().
+		Title("Model").
+		Options(opts...).
+		Value(&model).
+		Filtering(true).
+		Height(15).
+		Run() //nolint:errcheck
+
+	if model == customSentinel {
+		var custom string
+		huh.NewInput().
+			Title("Model name").
+			Placeholder(modelHintForType(provType)).
+			Value(&custom).
+			Run() //nolint:errcheck
+		if custom == "" && defaultModel != "" {
 			return defaultModel
 		}
-		return model
+		return custom
 	}
 
-	idx, err := strconv.Atoi(choice)
-	if err == nil && idx >= 1 && idx <= len(displayModels) {
-		return displayModels[idx-1].Name
-	}
+	return model
+}
 
-	// If the input isn't a valid number, treat it as a model name
-	return choice
+// modelHintForType returns placeholder text for manual model entry.
+func modelHintForType(t string) string {
+	pt := config.ProviderType(t)
+	if defaultModel, ok := config.DefaultModelByType[pt]; ok {
+		return "e.g. " + defaultModel
+	}
+	switch t {
+	case "anthropic":
+		return "e.g. claude-sonnet-4-20250514, claude-opus-4-20250514"
+	case "openai":
+		return "e.g. gpt-4o, gpt-4-turbo, o3-mini"
+	case "google":
+		return "e.g. gemini-2.5-pro, gemini-2.5-flash"
+	case "openai_compatible":
+		return "e.g. mistral-large-latest, llama-3-70b"
+	}
+	return "model name"
 }
 
 // testConnection tests the provider connection and handles retry/skip/quit.
 // Returns true if the test passed or the user chose to skip.
-func testConnection(reader *bufio.Reader, provName, provType, apiKey, authMethod string) bool {
+func testConnection(provName, provType, apiKey, authMethod string) bool {
 	fmt.Printf("Testing connection to %s...\n", provType)
 
 	// Build a temporary config with just this provider
@@ -261,18 +280,18 @@ func testConnection(reader *bufio.Reader, provName, provType, apiKey, authMethod
 	registry, err := provider.NewRegistryWithStore(tmpCfg, memStore)
 	if err != nil {
 		fmt.Printf("\u2715 Connection failed: %v\n", err)
-		return handleTestFailure(reader)
+		return handleTestFailure()
 	}
 
 	testProvider := registry.Primary()
 	if testProvider == nil {
 		fmt.Println("\u2715 Connection failed: no provider created")
-		return handleTestFailure(reader)
+		return handleTestFailure()
 	}
 
 	if err := testProvider.Authenticate(); err != nil {
 		fmt.Printf("\u2715 Connection failed: %v\n", err)
-		return handleTestFailure(reader)
+		return handleTestFailure()
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -286,14 +305,14 @@ func testConnection(reader *bufio.Reader, provName, provType, apiKey, authMethod
 	stream, err := testProvider.Query(ctx, msgs, opts)
 	if err != nil {
 		fmt.Printf("\u2715 Connection failed: %v\n", err)
-		return handleTestFailure(reader)
+		return handleTestFailure()
 	}
 
 	// Drain stream
 	for chunk := range stream {
 		if chunk.Error != nil {
 			fmt.Printf("\u2715 Connection failed: %v\n", chunk.Error)
-			return handleTestFailure(reader)
+			return handleTestFailure()
 		}
 	}
 
@@ -301,19 +320,27 @@ func testConnection(reader *bufio.Reader, provName, provType, apiKey, authMethod
 	return true
 }
 
-// handleTestFailure prompts for retry/skip/quit. Returns true if skip,
-// false if retry (caller should loop), and exits on quit.
-func handleTestFailure(reader *bufio.Reader) bool {
-	fmt.Print("(r)etry credentials, (s)kip validation, (q)uit: ")
-	choice, _ := reader.ReadString('\n')
-	choice = strings.TrimSpace(strings.ToLower(choice))
+// handleTestFailure prompts for retry/skip/quit using a selectable list.
+// Returns true if skip, false if retry (caller should loop), and exits on quit.
+func handleTestFailure() bool {
+	var choice string
+	huh.NewSelect[string]().
+		Title("Connection failed").
+		Options(
+			huh.NewOption("Retry credentials", "retry"),
+			huh.NewOption("Skip validation", "skip"),
+			huh.NewOption("Quit setup", "quit"),
+		).
+		Value(&choice).
+		Run() //nolint:errcheck
+
 	switch choice {
-	case "s":
+	case "skip":
 		return true // skip — caller continues
-	case "q":
+	case "quit":
 		fmt.Println("Setup cancelled.")
 		os.Exit(0)
 	}
-	// "r" or anything else — retry
+	// "retry" or default — retry
 	return false
 }
