@@ -20,6 +20,15 @@ git diff --stat
 
 All three must pass before proceeding.
 
+### Update CHANGELOG.md and README.md
+
+Before every release (and ideally with each commit that adds user-visible changes):
+
+1. **CHANGELOG.md** — Add an entry for the new version under `## [Unreleased]` (or the version heading if tagging now). Include a brief summary of what changed, grouped by Added/Changed/Fixed/Removed. Move `[Unreleased]` entries under the new version heading when cutting a release.
+2. **README.md** — Update any sections affected by the changes (features, configuration options, examples, architecture diagram, etc.). If a new feature was added, it should be documented in the README before the release goes out.
+
+Do not tag a release until both files are up to date and committed.
+
 ## Routine Commit & Push
 
 For regular feature/fix work:

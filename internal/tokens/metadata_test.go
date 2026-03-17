@@ -425,34 +425,36 @@ func TestNewMetadataStore_NoCache_FetchFails(t *testing.T) {
 func TestModelsForProvider(t *testing.T) {
 	store := &MetadataStore{
 		models: map[string]ModelInfo{
-			"anthropic/claude-sonnet-4-20250514": {
+			// Bare keys — matches real litellm format
+			"claude-sonnet-4-20250514": {
 				MaxInputTokens:          200000,
 				SupportsFunctionCalling: true,
 				SupportsVision:          true,
 				SupportsReasoning:       false,
 			},
-			"anthropic/claude-opus-4-20250514": {
+			"claude-opus-4-20250514": {
 				MaxInputTokens:          200000,
 				SupportsFunctionCalling: true,
 				SupportsVision:          true,
 				SupportsReasoning:       true,
 			},
-			"anthropic/claude-haiku-3-5-20241022": {
+			"claude-haiku-3-5-20241022": {
 				MaxInputTokens:          200000,
 				SupportsFunctionCalling: true,
 				SupportsVision:          false,
 				SupportsReasoning:       false,
 			},
-			"openai/gpt-4o": {
+			"gpt-4o": {
 				MaxInputTokens:          128000,
 				SupportsFunctionCalling: true,
 				SupportsVision:          true,
 			},
-			"openai/gpt-4-turbo": {
+			"gpt-4-turbo": {
 				MaxInputTokens:          128000,
 				SupportsFunctionCalling: true,
 				SupportsVision:          true,
 			},
+			// Slash-prefixed — Gemini still uses this format
 			"gemini/gemini-2.5-pro": {
 				MaxInputTokens:          1048576,
 				SupportsFunctionCalling: true,

@@ -231,14 +231,34 @@ func (s *MetadataStore) CapabilitiesForModel(model string, providerType string) 
 	return ModelInfo{}
 }
 
-// providerPrefixes maps config provider types to the key prefixes used
-// in the litellm metadata JSON. Some providers use different prefixes
-// (e.g., Google models are keyed as "gemini/" not "google/").
-var providerPrefixes = map[string][]string{
-	"anthropic":        {"anthropic/"},
-	"openai":           {"openai/"},
-	"google":           {"gemini/", "google/"},
-	"openai_compatible": {}, // no standard prefix
+// providerMatcher defines how to find models for a provider in the litellm
+// metadata JSON. Keys use various conventions:
+//   - Bare keys: "claude-sonnet-4-20250514", "gpt-4o", "o3-mini"
+//   - Slash-prefixed: "gemini/gemini-2.5-pro", "bedrock/anthropic.claude-..."
+//   - Dot-separated: "anthropic.claude-..." (Bedrock-style)
+//
+// We match slash-prefixed keys (stripping the prefix) and bare keys (no "/" or
+// "." in the key) whose name starts with a known pattern for the provider.
+type providerMatcher struct {
+	// prefixes matches keys like "gemini/model-name"; the prefix is stripped.
+	prefixes []string
+	// bareKeyPrefixes matches bare keys (no "/" or ".") that start with these
+	// strings; the key itself is the model name.
+	bareKeyPrefixes []string
+}
+
+var providerMatchers = map[string]providerMatcher{
+	"anthropic": {
+		bareKeyPrefixes: []string{"claude-"},
+	},
+	"openai": {
+		bareKeyPrefixes: []string{"gpt-", "o1", "o3", "o4", "chatgpt-"},
+	},
+	"google": {
+		prefixes:        []string{"gemini/"},
+		bareKeyPrefixes: []string{"gemini-"},
+	},
+	"openai_compatible": {}, // no standard pattern
 }
 
 // priorityModels lists model name substrings that should sort first,
@@ -257,37 +277,47 @@ var priorityModels = []string{
 }
 
 // ModelsForProvider returns a sorted list of ModelSummary entries for the
-// given provider type. Models are found by matching litellm key prefixes
-// (e.g., "anthropic/" for the anthropic provider). The list is sorted with
-// priority models first, then alphabetically.
+// given provider type. Models are found by matching slash-prefixed keys
+// and bare keys against the provider's matcher patterns. The list is sorted
+// with priority models first, then alphabetically.
 func (s *MetadataStore) ModelsForProvider(providerType string) []config.ModelSummary {
-	prefixes := providerPrefixes[providerType]
+	matcher, ok := providerMatchers[providerType]
+	if !ok {
+		return nil
+	}
 
 	seen := make(map[string]bool)
 	var results []config.ModelSummary
 
 	for key, info := range s.models {
+		var modelName string
 		matched := false
-		for _, prefix := range prefixes {
+
+		// Check slash-prefixed keys (e.g., "gemini/gemini-2.5-pro")
+		for _, prefix := range matcher.prefixes {
 			if strings.HasPrefix(key, prefix) {
+				modelName = strings.TrimPrefix(key, prefix)
 				matched = true
 				break
 			}
 		}
+
+		// Check bare keys (no "/" or "." — direct model names like "claude-sonnet-4-20250514")
+		if !matched && !strings.Contains(key, "/") && !strings.Contains(key, ".") {
+			for _, bp := range matcher.bareKeyPrefixes {
+				if strings.HasPrefix(key, bp) {
+					modelName = key
+					matched = true
+					break
+				}
+			}
+		}
+
 		if !matched {
 			continue
 		}
 
-		// Extract model name by stripping the prefix
-		modelName := key
-		for _, prefix := range prefixes {
-			if strings.HasPrefix(key, prefix) {
-				modelName = strings.TrimPrefix(key, prefix)
-				break
-			}
-		}
-
-		// Skip duplicates (same model name from different prefixes)
+		// Skip duplicates (same model name from different key patterns)
 		if seen[modelName] {
 			continue
 		}
