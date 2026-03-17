@@ -55,9 +55,16 @@ func (e *Engine) BuildConsensusPrompt(originalPrompt string, responses map[strin
 		b.WriteString("\n---\n\n")
 	}
 
-	b.WriteString("Analyze all responses. Identify areas of agreement, unique insights, and any errors.\n")
-	b.WriteString("Produce a single, authoritative response that represents the best synthesis.\n")
-	b.WriteString("If models disagree, use your judgment to determine the correct approach.\n")
+	b.WriteString("Analyze all responses and produce a synthesis with this structure:\n\n")
+	b.WriteString("## Recommendation\n")
+	b.WriteString("[Your synthesized answer — the best response combining insights from all models]\n\n")
+	b.WriteString("## Confidence: [high/medium/low]\n\n")
+	b.WriteString("## Agreement\n")
+	b.WriteString("[Points where all or most models agree]\n\n")
+	b.WriteString("## Minority Report\n")
+	b.WriteString("[Dissenting views worth considering, with the model name and reasoning. Write \"None — all models agreed\" if there are no disagreements.]\n\n")
+	b.WriteString("## Evidence\n")
+	b.WriteString("[Key facts, code references, or documentation cited by any model]\n")
 
 	return []provider.Message{
 		{

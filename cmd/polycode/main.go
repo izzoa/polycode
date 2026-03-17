@@ -56,6 +56,16 @@ func main() {
 	}
 	rootCmd.AddCommand(initCmd)
 
+	// Review command
+	reviewCmd := &cobra.Command{
+		Use:   "review [flags] [-- files...]",
+		Short: "Review code changes using multi-model consensus",
+		RunE:  runReview,
+	}
+	reviewCmd.Flags().Int("pr", 0, "GitHub PR number to review")
+	reviewCmd.Flags().Bool("comment", false, "Post review as PR comment (requires --pr)")
+	rootCmd.AddCommand(reviewCmd)
+
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}

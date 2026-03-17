@@ -38,14 +38,14 @@ Prioritized phases for making polycode a production-ready, differentiated multi-
 
 ### Tasks
 
-- [ ] Design a structured response envelope schema that every provider response maps into: `{ proposed_action, evidence, assumptions, confidence, disagreements }`
-- [ ] Update the consensus prompt to request structured output from providers (action + reasoning, not just prose)
-- [ ] Add a verifier lane: after consensus, run the proposed change through tests, lint, and/or a security review pass before presenting to the user
-- [ ] Implement minority reports: when models disagree, surface the dissenting view with its evidence so the user can evaluate
-- [ ] Build `polycode review` CLI subcommand: takes a `git diff` (or staged changes), fans out to all providers for review, synthesizes findings
-- [ ] Extend `polycode review` to accept a GitHub PR URL (via `gh` CLI) and post the consensus review as a comment
-- [ ] Build a benchmark set with seeded bugfix, refactor, and security-review cases to measure review quality
-- [ ] Show review provenance in the TUI: which models agreed, which disagreed, and what evidence was cited
+- [x] Design a structured response envelope schema that every provider response maps into: `{ proposed_action, evidence, assumptions, confidence, disagreements }`
+- [x] Update the consensus prompt to request structured output from providers (action + reasoning, not just prose)
+- [x] Add a verifier lane: after consensus, run the proposed change through tests, lint, and/or a security review pass before presenting to the user
+- [x] Implement minority reports: when models disagree, surface the dissenting view with its evidence so the user can evaluate
+- [x] Build `polycode review` CLI subcommand: takes a `git diff` (or staged changes), fans out to all providers for review, synthesizes findings
+- [x] Extend `polycode review` to accept a GitHub PR URL (via `gh` CLI) and post the consensus review as a comment
+- [x] Build a benchmark set with seeded bugfix, refactor, and security-review cases to measure review quality
+- [x] Show review provenance in the TUI: which models agreed, which disagreed, and what evidence was cited
 
 ### Validation Gates
 

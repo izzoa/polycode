@@ -40,9 +40,11 @@ type ProviderConfig struct {
 }
 
 type ConsensusConfig struct {
-	Timeout      time.Duration `yaml:"-"`
-	TimeoutRaw   string        `yaml:"timeout"`
-	MinResponses int           `yaml:"min_responses"`
+	Timeout       time.Duration `yaml:"-"`
+	TimeoutRaw    string        `yaml:"timeout"`
+	MinResponses  int           `yaml:"min_responses"`
+	Verify        bool          `yaml:"verify,omitempty"`
+	VerifyCommand string        `yaml:"verify_command,omitempty"`
 }
 
 type TUIConfig struct {

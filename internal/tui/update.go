@@ -52,6 +52,14 @@ type ToolCallMsg struct {
 	Description string // e.g., "Reading main.go" or "Running `go test`"
 }
 
+// ConsensusAnalysisMsg delivers structured provenance from the consensus synthesis.
+type ConsensusAnalysisMsg struct {
+	Confidence  string
+	Agreements  []string
+	Minorities  []string
+	Evidence    []string
+}
+
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
@@ -72,6 +80,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.consensusContent.WriteString("\n" + msg.Description + "\n")
 		m.consensusView.SetContent(m.consensusContent.String())
 		m.consensusView.GotoBottom()
+		return m, nil
+
+	case ConsensusAnalysisMsg:
+		m.consensusConfidence = msg.Confidence
+		m.consensusAgreements = msg.Agreements
+		m.minorityReports = msg.Minorities
+		m.consensusEvidence = msg.Evidence
 		return m, nil
 
 	case tea.KeyMsg:
@@ -278,6 +293,11 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "tab":
 		m.showIndividual = !m.showIndividual
 		return m, nil
+	case "p":
+		if !m.querying {
+			m.showProvenance = !m.showProvenance
+			return m, nil
+		}
 	case "enter":
 		if !m.querying {
 			prompt := strings.TrimSpace(m.textarea.Value())

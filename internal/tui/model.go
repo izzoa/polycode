@@ -87,6 +87,13 @@ type Model struct {
 	consensusView    viewport.Model
 	consensusActive  bool
 
+	// Consensus provenance
+	showProvenance      bool
+	consensusConfidence string   // "high", "medium", "low", ""
+	consensusAgreements []string // key agreement points
+	minorityReports     []string // dissenting views
+	consensusEvidence   []string // cited evidence
+
 	// Conversation state — full multi-turn dialogue
 	history       []Exchange // completed exchanges for display
 	currentPrompt string     // the prompt being processed right now

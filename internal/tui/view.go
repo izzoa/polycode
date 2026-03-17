@@ -57,6 +57,11 @@ func (m Model) renderChat() string {
 		sections = append(sections, m.renderProviderPanels())
 	}
 
+	// Provenance panel (toggled with 'p')
+	if m.showProvenance && !m.querying {
+		sections = append(sections, m.renderProvenance())
+	}
+
 	// Confirmation prompt (overlays input area when pending)
 	if m.confirmPending {
 		sections = append(sections, m.renderConfirmPrompt())
@@ -83,6 +88,66 @@ func (m Model) renderConfirmPrompt() string {
 	return warnStyle.Render(fmt.Sprintf("%s\n\n%s\n\n%s", title, desc, hint))
 }
 
+// renderProvenance renders the consensus provenance panel.
+func (m Model) renderProvenance() string {
+	style := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("63")).
+		Padding(0, 1).
+		Width(m.width - 4)
+
+	var lines []string
+
+	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("63")).Render("Consensus Provenance")
+	lines = append(lines, title, "")
+
+	// Confidence
+	if m.consensusConfidence != "" {
+		var confStyle lipgloss.Style
+		switch m.consensusConfidence {
+		case "high":
+			confStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true)
+		case "medium":
+			confStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
+		case "low":
+			confStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+		default:
+			confStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+		}
+		lines = append(lines, "Confidence: "+confStyle.Render(m.consensusConfidence))
+	}
+
+	// Agreements
+	if len(m.consensusAgreements) > 0 {
+		lines = append(lines, "", lipgloss.NewStyle().Bold(true).Render("Agreement:"))
+		for _, a := range m.consensusAgreements {
+			lines = append(lines, "  "+a)
+		}
+	}
+
+	// Minority reports
+	if len(m.minorityReports) > 0 {
+		lines = append(lines, "", lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214")).Render("Minority Report:"))
+		for _, mr := range m.minorityReports {
+			lines = append(lines, "  "+mr)
+		}
+	} else {
+		lines = append(lines, "", m.styles.Dimmed.Render("All models agreed"))
+	}
+
+	// Evidence
+	if len(m.consensusEvidence) > 0 {
+		lines = append(lines, "", lipgloss.NewStyle().Bold(true).Render("Evidence:"))
+		for _, e := range m.consensusEvidence {
+			lines = append(lines, "  "+e)
+		}
+	}
+
+	lines = append(lines, "", m.styles.Dimmed.Render("Press p to close"))
+
+	return style.Render(strings.Join(lines, "\n"))
+}
+
 // renderHelp renders the help overlay showing all keyboard shortcuts.
 func (m Model) renderHelp() string {
 	var sections []string
@@ -100,6 +165,7 @@ func (m Model) renderHelp() string {
 		{"/settings", "Open settings (type in input)"},
 		{"/clear", "Clear conversation and reset context"},
 		{"Tab", "Toggle individual provider panels"},
+		{"p", "Toggle consensus provenance panel"},
 		{"Enter", "Submit prompt / advance wizard step"},
 		{"?", "Toggle this help overlay"},
 		{"", ""},
