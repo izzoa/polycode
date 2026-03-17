@@ -18,6 +18,7 @@ import (
 )
 
 func runReview(cmd *cobra.Command, args []string) error {
+	printBanner()
 	prNumber, _ := cmd.Flags().GetInt("pr")
 	postComment, _ := cmd.Flags().GetBool("comment")
 

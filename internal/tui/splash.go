@@ -7,7 +7,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-const asciiArt = `
+// ASCIIArt is the polycode logo for use in splash screens and CLI output.
+const ASCIIArt = `
  ██████╗  ██████╗ ██╗  ██╗   ██╗ ██████╗ ██████╗ ██████╗ ███████╗
  ██╔══██╗██╔═══██╗██║  ╚██╗ ██╔╝██╔════╝██╔═══██╗██╔══██╗██╔════╝
  ██████╔╝██║   ██║██║   ╚████╔╝ ██║     ██║   ██║██║  ██║█████╗
@@ -25,7 +26,7 @@ func (m Model) renderSplash() string {
 		Foreground(lipgloss.Color("39")). // cyan
 		Bold(true)
 
-	art := gradientStyle.Render(asciiArt)
+	art := gradientStyle.Render(ASCIIArt)
 
 	// Version line
 	versionStyle := lipgloss.NewStyle().

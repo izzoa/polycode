@@ -29,6 +29,7 @@ func runSetupWizard() error {
 	reader := bufio.NewReader(os.Stdin)
 	cfg := config.DefaultConfig()
 
+	printBanner()
 	fmt.Println("=== Polycode Setup ===")
 	fmt.Println()
 	fmt.Println("Let's configure your first LLM provider.")
