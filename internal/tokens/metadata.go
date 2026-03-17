@@ -139,7 +139,7 @@ func NewMetadataStore(url string, cachePath string, cacheTTL time.Duration) (*Me
 	}
 
 	// Cache is stale or missing — try fetching
-	fetchedData, fetchErr := FetchMetadata(url, 5*time.Second)
+	fetchedData, fetchErr := FetchMetadata(url, 30*time.Second)
 	if fetchErr == nil {
 		models, parseErr := ParseMetadata(fetchedData)
 		if parseErr == nil {
