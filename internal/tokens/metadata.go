@@ -8,8 +8,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/izzoa/polycode/internal/config"
 )
 
 // DefaultMetadataURL is the default URL for litellm model metadata.
@@ -226,4 +229,101 @@ func (s *MetadataStore) CapabilitiesForModel(model string, providerType string) 
 		return info
 	}
 	return ModelInfo{}
+}
+
+// providerPrefixes maps config provider types to the key prefixes used
+// in the litellm metadata JSON. Some providers use different prefixes
+// (e.g., Google models are keyed as "gemini/" not "google/").
+var providerPrefixes = map[string][]string{
+	"anthropic":        {"anthropic/"},
+	"openai":           {"openai/"},
+	"google":           {"gemini/", "google/"},
+	"openai_compatible": {}, // no standard prefix
+}
+
+// priorityModels lists model name substrings that should sort first,
+// in order of priority. Models matching earlier entries sort higher.
+var priorityModels = []string{
+	"sonnet",
+	"opus",
+	"haiku",
+	"gpt-4o",
+	"gpt-4-turbo",
+	"o3",
+	"o1",
+	"gemini-2.5-pro",
+	"gemini-2.5-flash",
+	"gemini-2.0",
+}
+
+// ModelsForProvider returns a sorted list of ModelSummary entries for the
+// given provider type. Models are found by matching litellm key prefixes
+// (e.g., "anthropic/" for the anthropic provider). The list is sorted with
+// priority models first, then alphabetically.
+func (s *MetadataStore) ModelsForProvider(providerType string) []config.ModelSummary {
+	prefixes := providerPrefixes[providerType]
+
+	seen := make(map[string]bool)
+	var results []config.ModelSummary
+
+	for key, info := range s.models {
+		matched := false
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(key, prefix) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+
+		// Extract model name by stripping the prefix
+		modelName := key
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(key, prefix) {
+				modelName = strings.TrimPrefix(key, prefix)
+				break
+			}
+		}
+
+		// Skip duplicates (same model name from different prefixes)
+		if seen[modelName] {
+			continue
+		}
+		seen[modelName] = true
+
+		results = append(results, config.ModelSummary{
+			Name:                    modelName,
+			MaxInputTokens:          info.MaxInputTokens,
+			SupportsFunctionCalling: info.SupportsFunctionCalling,
+			SupportsVision:          info.SupportsVision,
+			SupportsReasoning:       info.SupportsReasoning,
+		})
+	}
+
+	// Sort: priority models first, then alphabetical
+	sort.Slice(results, func(i, j int) bool {
+		pi := priorityIndex(results[i].Name)
+		pj := priorityIndex(results[j].Name)
+		if pi != pj {
+			return pi < pj
+		}
+		return results[i].Name < results[j].Name
+	})
+
+	return results
+}
+
+// priorityIndex returns the sort priority for a model name.
+// Lower values sort first. Models not matching any priority pattern
+// get a high value (len(priorityModels)) and sort alphabetically after.
+func priorityIndex(name string) int {
+	lower := strings.ToLower(name)
+	for i, pat := range priorityModels {
+		if strings.Contains(lower, strings.ToLower(pat)) {
+			return i
+		}
+	}
+	return len(priorityModels)
 }

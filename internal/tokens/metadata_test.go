@@ -421,6 +421,116 @@ func TestNewMetadataStore_NoCache_FetchFails(t *testing.T) {
 	}
 }
 
+// 5.2: ModelsForProvider filters correctly by provider prefix.
+func TestModelsForProvider(t *testing.T) {
+	store := &MetadataStore{
+		models: map[string]ModelInfo{
+			"anthropic/claude-sonnet-4-20250514": {
+				MaxInputTokens:          200000,
+				SupportsFunctionCalling: true,
+				SupportsVision:          true,
+				SupportsReasoning:       false,
+			},
+			"anthropic/claude-opus-4-20250514": {
+				MaxInputTokens:          200000,
+				SupportsFunctionCalling: true,
+				SupportsVision:          true,
+				SupportsReasoning:       true,
+			},
+			"anthropic/claude-haiku-3-5-20241022": {
+				MaxInputTokens:          200000,
+				SupportsFunctionCalling: true,
+				SupportsVision:          false,
+				SupportsReasoning:       false,
+			},
+			"openai/gpt-4o": {
+				MaxInputTokens:          128000,
+				SupportsFunctionCalling: true,
+				SupportsVision:          true,
+			},
+			"openai/gpt-4-turbo": {
+				MaxInputTokens:          128000,
+				SupportsFunctionCalling: true,
+				SupportsVision:          true,
+			},
+			"gemini/gemini-2.5-pro": {
+				MaxInputTokens:          1048576,
+				SupportsFunctionCalling: true,
+				SupportsVision:          true,
+				SupportsReasoning:       true,
+			},
+			"some-unknown-model": {
+				MaxInputTokens: 4096,
+			},
+		},
+	}
+
+	// Anthropic models
+	anthropicModels := store.ModelsForProvider("anthropic")
+	if len(anthropicModels) != 3 {
+		t.Errorf("expected 3 anthropic models, got %d", len(anthropicModels))
+	}
+	// Should be sorted by priority: sonnet first, then opus, then haiku
+	if len(anthropicModels) >= 3 {
+		if anthropicModels[0].Name != "claude-sonnet-4-20250514" {
+			t.Errorf("expected first anthropic model to be sonnet, got %q", anthropicModels[0].Name)
+		}
+		if anthropicModels[1].Name != "claude-opus-4-20250514" {
+			t.Errorf("expected second anthropic model to be opus, got %q", anthropicModels[1].Name)
+		}
+		if anthropicModels[2].Name != "claude-haiku-3-5-20241022" {
+			t.Errorf("expected third anthropic model to be haiku, got %q", anthropicModels[2].Name)
+		}
+	}
+
+	// Verify capabilities are preserved
+	if len(anthropicModels) > 0 {
+		sonnet := anthropicModels[0]
+		if sonnet.MaxInputTokens != 200000 {
+			t.Errorf("expected sonnet MaxInputTokens 200000, got %d", sonnet.MaxInputTokens)
+		}
+		if !sonnet.SupportsFunctionCalling {
+			t.Error("expected sonnet to support function calling")
+		}
+	}
+
+	// OpenAI models
+	openaiModels := store.ModelsForProvider("openai")
+	if len(openaiModels) != 2 {
+		t.Errorf("expected 2 openai models, got %d", len(openaiModels))
+	}
+	// gpt-4o should come before gpt-4-turbo in priority
+	if len(openaiModels) >= 2 {
+		if openaiModels[0].Name != "gpt-4o" {
+			t.Errorf("expected first openai model to be gpt-4o, got %q", openaiModels[0].Name)
+		}
+		if openaiModels[1].Name != "gpt-4-turbo" {
+			t.Errorf("expected second openai model to be gpt-4-turbo, got %q", openaiModels[1].Name)
+		}
+	}
+
+	// Google models (keyed as gemini/)
+	googleModels := store.ModelsForProvider("google")
+	if len(googleModels) != 1 {
+		t.Errorf("expected 1 google model, got %d", len(googleModels))
+	}
+	if len(googleModels) > 0 && googleModels[0].Name != "gemini-2.5-pro" {
+		t.Errorf("expected google model to be gemini-2.5-pro, got %q", googleModels[0].Name)
+	}
+
+	// Unknown provider returns empty
+	unknownModels := store.ModelsForProvider("azure")
+	if len(unknownModels) != 0 {
+		t.Errorf("expected 0 models for unknown provider, got %d", len(unknownModels))
+	}
+
+	// openai_compatible returns empty (no standard prefix)
+	compatModels := store.ModelsForProvider("openai_compatible")
+	if len(compatModels) != 0 {
+		t.Errorf("expected 0 models for openai_compatible, got %d", len(compatModels))
+	}
+}
+
 func TestNewMetadataStore_FetchSuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

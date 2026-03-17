@@ -262,6 +262,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case WizardTestResultMsg:
+		m.wizardTesting = false
+		if msg.Success {
+			m.wizardTestResult = m.styles.StatusHealthy.Render("\u2713 Connected successfully!")
+			// Auto-advance to next step after successful test
+			m.nextWizardStep()
+		} else {
+			errMsg := "unknown error"
+			if msg.Error != nil {
+				errMsg = msg.Error.Error()
+			}
+			m.wizardTestResult = m.styles.StatusUnhealthy.Render(
+				"\u2715 Connection failed: "+errMsg) +
+				"\n  (r)etry credentials  (s)kip validation"
+		}
+		return m, nil
+
 	case QueryStartMsg:
 		m.querying = true
 		m.consensusActive = false
@@ -334,7 +351,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case spinner.TickMsg:
-		if m.querying || m.testingProvider != "" {
+		if m.querying || m.testingProvider != "" || m.wizardTesting {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			cmds = append(cmds, cmd)

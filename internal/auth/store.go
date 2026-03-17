@@ -136,3 +136,46 @@ func (f *fileStore) Delete(providerName string) error {
 	delete(creds, providerName)
 	return f.save(creds)
 }
+
+// ---------------------------------------------------------------------------
+// In-memory store (for testing and ephemeral use)
+// ---------------------------------------------------------------------------
+
+// MemStore is an in-memory credential store useful for testing and
+// ephemeral operations like the CLI wizard's connection test.
+type MemStore struct {
+	mu      sync.Mutex
+	secrets map[string]string
+}
+
+// NewMemStore creates a new in-memory credential store.
+func NewMemStore() *MemStore {
+	return &MemStore{secrets: make(map[string]string)}
+}
+
+func (m *MemStore) Get(providerName string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.secrets[providerName]
+	if !ok {
+		return "", ErrNotFound
+	}
+	return s, nil
+}
+
+func (m *MemStore) Set(providerName string, secret string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.secrets[providerName] = secret
+	return nil
+}
+
+func (m *MemStore) Delete(providerName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.secrets[providerName]; !ok {
+		return ErrNotFound
+	}
+	delete(m.secrets, providerName)
+	return nil
+}

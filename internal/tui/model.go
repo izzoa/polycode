@@ -159,14 +159,20 @@ type Model struct {
 	testingProvider string // provider name currently being tested
 
 	// Wizard state (add/edit provider)
-	wizardStep      wizardStep
-	wizardData      config.ProviderConfig
-	wizardInput     textinput.Model
+	wizardStep       wizardStep
+	wizardData       config.ProviderConfig
+	wizardInput      textinput.Model
 	wizardListCursor int
-	wizardListItems []string
-	wizardEditing   bool   // true when editing an existing provider
-	wizardEditIndex int    // index into config.Providers being edited
-	wizardAPIKey    string // API key captured during stepAPIKey
+	wizardListItems  []string
+	wizardEditing    bool   // true when editing an existing provider
+	wizardEditIndex  int    // index into config.Providers being edited
+	wizardAPIKey     string // API key captured during stepAPIKey
+
+	// Smart wizard state
+	wizardModelSummaries []config.ModelSummary // cached model list for current provider
+	wizardCustomModel    bool                  // true when user selected "Custom model..." in model step
+	wizardTesting        bool                  // true while connection test is running
+	wizardTestResult     string                // result message from connection test
 
 	// Help overlay
 	showHelp bool
@@ -182,6 +188,9 @@ type Model struct {
 	onMemory        func(args string)
 	onConfigChanged func(*config.Config)
 	onTestProvider  func(providerName string)
+
+	// Model listing for wizard
+	modelLister func(providerType string) []config.ModelSummary
 }
 
 // Styles holds all lipgloss styles for the TUI.
@@ -332,6 +341,13 @@ func (m *Model) SetConfigChangeHandler(handler func(*config.Config)) {
 // 't' in the settings screen to test a provider connection.
 func (m *Model) SetTestProviderHandler(handler func(providerName string)) {
 	m.onTestProvider = handler
+}
+
+// SetModelLister sets a callback that returns available models for a
+// provider type. Used by the wizard to show a model list instead of
+// requiring manual text entry.
+func (m *Model) SetModelLister(lister func(providerType string) []config.ModelSummary) {
+	m.modelLister = lister
 }
 
 // splashDoneMsg is sent when the splash timeout expires.

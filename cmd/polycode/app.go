@@ -127,6 +127,14 @@ func startTUI(cfg *config.Config) error {
 	// Create TUI model
 	model := tui.NewModel(names, primary.ID(), version)
 
+	// Task 4.1/4.2: Pass model listing closure to the TUI model for wizard use
+	model.SetModelLister(func(providerType string) []config.ModelSummary {
+		if metadataStore == nil {
+			return nil
+		}
+		return metadataStore.ModelsForProvider(providerType)
+	})
+
 	// Auto-resume: load saved session if one exists
 	if savedSession, err := config.LoadSession(); err == nil && savedSession != nil && len(savedSession.Messages) > 0 {
 		// Restore conversation messages
