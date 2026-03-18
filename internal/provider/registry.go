@@ -61,14 +61,37 @@ func NewRegistryWithStore(cfg *config.Config, store auth.Store) (*Registry, erro
 	return r, nil
 }
 
+// defaultOAuthConfigs provides built-in OAuth device flow endpoints for
+// providers that support OAuth. Users can override these in their config.
+var defaultOAuthConfigs = map[config.ProviderType]auth.DeviceFlowConfig{
+	config.ProviderTypeAnthropic: {
+		ClientID:      "d5765e38-3048-464a-b341-c41a10809ec6",
+		DeviceAuthURL: "https://auth.anthropic.com/oauth/device/code",
+		TokenURL:      "https://auth.anthropic.com/oauth/token",
+	},
+	config.ProviderTypeGoogle: {
+		ClientID:      "764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com",
+		DeviceAuthURL: "https://oauth2.googleapis.com/device/code",
+		TokenURL:      "https://oauth2.googleapis.com/token",
+	},
+}
+
 // newProvider creates a Provider implementation from a ProviderConfig.
 func newProvider(pc config.ProviderConfig, store auth.Store) (Provider, error) {
 	var oauthCfg *auth.DeviceFlowConfig
-	if pc.Auth == config.AuthMethodOAuth && pc.OAuthClientID != "" {
-		oauthCfg = &auth.DeviceFlowConfig{
-			ClientID:      pc.OAuthClientID,
-			DeviceAuthURL: pc.OAuthDeviceURL,
-			TokenURL:      pc.OAuthTokenURL,
+	if pc.Auth == config.AuthMethodOAuth {
+		if pc.OAuthClientID != "" {
+			// User provided explicit OAuth config
+			oauthCfg = &auth.DeviceFlowConfig{
+				ClientID:      pc.OAuthClientID,
+				DeviceAuthURL: pc.OAuthDeviceURL,
+				TokenURL:      pc.OAuthTokenURL,
+			}
+		} else if defaults, ok := defaultOAuthConfigs[pc.Type]; ok {
+			// Use built-in defaults for this provider type
+			oauthCfg = &defaults
+		} else {
+			return nil, fmt.Errorf("provider %q: auth method is oauth but no OAuth client ID configured and no defaults available for type %q — set oauth_client_id, oauth_device_url, and oauth_token_url in config", pc.Name, pc.Type)
 		}
 	}
 

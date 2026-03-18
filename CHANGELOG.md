@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-03-18
+
+### Fixed
+- **OAuth authentication now works out of the box**: Providers with `auth: oauth` previously failed because no OAuth endpoints were configured. Built-in default OAuth device flow endpoints are now supplied for Anthropic and Google when no explicit `oauth_client_id` is set in config. Providers without built-in defaults get a clear error message instead of a circular "run polycode auth login" loop.
+
 ## [1.3.1] - 2026-03-18
 
 ### Fixed
