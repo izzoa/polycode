@@ -374,6 +374,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.textarea, cmd = m.textarea.Update(msg)
 		cmds = append(cmds, cmd)
+
+		// Update slash command completions as user types
+		input := strings.TrimSpace(m.textarea.Value())
+		if strings.HasPrefix(input, "/") && len(input) > 1 {
+			m.slashMatches = nil
+			m.slashCompIdx = 0
+			for _, cmd := range m.slashCommands {
+				if strings.HasPrefix(cmd, input) {
+					m.slashMatches = append(m.slashMatches, cmd)
+				}
+			}
+		} else {
+			m.slashMatches = nil
+		}
 	}
 
 	// Update viewports (only in chat mode)
@@ -406,32 +420,16 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 	case "tab":
-		// Slash command autocomplete when input starts with "/"
-		input := m.textarea.Value()
-		if strings.HasPrefix(input, "/") && !m.querying {
-			prefix := strings.TrimSpace(input)
-			// Collect matching commands
-			var matches []string
-			for _, cmd := range m.slashCommands {
-				if strings.HasPrefix(cmd, prefix) {
-					matches = append(matches, cmd)
-				}
-			}
-			if len(matches) > 0 {
-				// Reset cycle if prefix changed
-				if prefix != m.slashCompPrefix {
-					m.slashCompIdx = 0
-					m.slashCompPrefix = prefix
-				} else {
-					m.slashCompIdx = (m.slashCompIdx + 1) % len(matches)
-				}
-				m.textarea.SetValue(matches[m.slashCompIdx])
-				return m, nil
-			}
+		// Tab accepts the current slash completion if one is shown
+		input := strings.TrimSpace(m.textarea.Value())
+		if strings.HasPrefix(input, "/") && !m.querying && len(m.slashMatches) > 0 {
+			m.textarea.Reset()
+			m.textarea.SetValue(m.slashMatches[m.slashCompIdx])
+			m.slashMatches = nil
+			m.slashCompPrefix = ""
+			return m, nil
 		}
-		// Fall through: toggle provider panels
-		m.slashCompIdx = -1
-		m.slashCompPrefix = ""
+		// Otherwise toggle provider panels
 		m.showIndividual = !m.showIndividual
 		return m, nil
 	case "p":

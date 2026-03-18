@@ -131,9 +131,10 @@ type Model struct {
 	confirmResponseCh  chan bool
 
 	// Slash command autocomplete
-	slashCommands    []string // all available commands
-	slashCompIdx     int      // current completion index (-1 = none)
-	slashCompPrefix  string   // the prefix being completed
+	slashCommands   []string // all available commands
+	slashMatches    []string // current matching commands (shown as hints)
+	slashCompIdx    int      // current selected match for Tab accept
+	slashCompPrefix string   // the prefix being completed
 
 	// Tool execution status
 	toolStatus string // e.g., "Reading main.go..." — shown in consensus panel during tool exec

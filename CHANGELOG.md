@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-03-18
+
+### Added
+- **Inline slash command autocomplete**: Matching commands appear as hints above the input as you type (e.g., typing `/cl` shows `/clear`). Press Tab to accept the highlighted completion.
+
 ## [1.5.2] - 2026-03-18
 
 ### Fixed

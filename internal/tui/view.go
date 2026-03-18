@@ -78,6 +78,21 @@ func (m Model) renderChat() string {
 		sections = append(sections, m.renderProvenance())
 	}
 
+	// Slash command completion hints (shown above input when typing /)
+	if len(m.slashMatches) > 0 && !m.querying {
+		hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+		selectedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("86")).Bold(true)
+		var hints []string
+		for i, cmd := range m.slashMatches {
+			if i == m.slashCompIdx {
+				hints = append(hints, selectedStyle.Render(cmd))
+			} else {
+				hints = append(hints, hintStyle.Render(cmd))
+			}
+		}
+		sections = append(sections, "  "+strings.Join(hints, hintStyle.Render("  ")))
+	}
+
 	// Confirmation prompt (overlays input area when pending)
 	if m.confirmPending {
 		sections = append(sections, m.renderConfirmPrompt())
