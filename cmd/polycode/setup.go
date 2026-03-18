@@ -32,9 +32,9 @@ func loadConfig() (*config.Config, error) {
 }
 
 func runSetupWizard() error {
-	cfg := config.DefaultConfig()
+	cfgVal := config.DefaultConfig()
+	cfg := &cfgVal
 
-	// Try to create a MetadataStore for model listing
 	cachePath := filepath.Join(config.ConfigDir(), "model_metadata.json")
 	metadataStore, _ := tokens.NewMetadataStore("", cachePath, 24*time.Hour)
 
@@ -44,7 +44,88 @@ func runSetupWizard() error {
 	fmt.Println("Let's configure your first LLM provider.")
 	fmt.Println()
 
-	// Provider type — selectable list
+	// Add the first provider (always primary)
+	if err := addProviderWizard(cfg, metadataStore, true); err != nil {
+		return err
+	}
+
+	// Ask to add more providers
+	for {
+		var addMore bool
+		err := huh.NewConfirm().
+			Title("Add another provider?").
+			Description("More providers improve consensus quality").
+			Value(&addMore).
+			Run()
+		if err != nil || !addMore {
+			break
+		}
+		fmt.Println()
+		if err := addProviderWizard(cfg, metadataStore, false); err != nil {
+			return err
+		}
+	}
+
+	// Adjust min_responses based on provider count
+	if len(cfg.Providers) == 1 {
+		cfg.Consensus.MinResponses = 1
+	} else if cfg.Consensus.MinResponses < 2 {
+		cfg.Consensus.MinResponses = 2
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	if err := cfg.Save(); err != nil {
+		return fmt.Errorf("saving config: %w", err)
+	}
+
+	fmt.Printf("\nConfiguration saved to %s\n", config.ConfigPath())
+	fmt.Printf("Configured %d provider(s). Run 'polycode' to start the TUI.\n", len(cfg.Providers))
+	return nil
+}
+
+// runAddProvider adds a provider to an existing config (polycode provider add).
+func runAddProvider() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	cachePath := filepath.Join(config.ConfigDir(), "model_metadata.json")
+	metadataStore, _ := tokens.NewMetadataStore("", cachePath, 24*time.Hour)
+
+	fmt.Println("=== Add Provider ===")
+	fmt.Println()
+
+	isPrimary := len(cfg.Providers) == 0
+	if err := addProviderWizard(cfg, metadataStore, isPrimary); err != nil {
+		return err
+	}
+
+	// If this is the second provider, bump min_responses if it was 1
+	if len(cfg.Providers) >= 2 && cfg.Consensus.MinResponses < 2 {
+		cfg.Consensus.MinResponses = 2
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	if err := cfg.Save(); err != nil {
+		return fmt.Errorf("saving config: %w", err)
+	}
+
+	fmt.Printf("\nProvider added. %d provider(s) configured.\n", len(cfg.Providers))
+	return nil
+}
+
+// addProviderWizard runs the interactive provider setup flow and appends the
+// result to cfg.Providers. If forcePrimary is true, the provider is set as
+// primary without asking.
+func addProviderWizard(cfg *config.Config, metadataStore *tokens.MetadataStore, forcePrimary bool) error {
+	// Provider type
 	var provType string
 	err := huh.NewSelect[string]().
 		Title("Provider type").
@@ -60,7 +141,7 @@ func runSetupWizard() error {
 		return fmt.Errorf("setup cancelled: %w", err)
 	}
 
-	// Provider name — text input
+	// Provider name
 	var name string
 	err = huh.NewInput().
 		Title("Provider name").
@@ -73,7 +154,7 @@ func runSetupWizard() error {
 
 	pt := config.ProviderType(provType)
 
-	// Base URL — text input (only for openai_compatible, collected early for model discovery)
+	// Base URL (openai_compatible only, collected early for model discovery)
 	var baseURL string
 	if pt == config.ProviderTypeOpenAICompatible {
 		err = huh.NewInput().
@@ -86,7 +167,7 @@ func runSetupWizard() error {
 		}
 	}
 
-	// Auth method — selectable list filtered by provider type
+	// Auth method
 	validAuths := config.AuthMethodsByType[pt]
 	var authInput string
 	if len(validAuths) > 0 {
@@ -104,12 +185,13 @@ func runSetupWizard() error {
 		}
 	}
 
-	// API key — password input + connection test
+	// API key + connection test
 	var apiKey string
 	authMethod := config.AuthMethod(authInput)
+	hasBaseURL := pt == config.ProviderTypeOpenAICompatible
 	if authMethod == config.AuthMethodAPIKey {
 		for {
-			apiKey = "" // reset for retry
+			apiKey = ""
 			err = huh.NewInput().
 				Title("API key").
 				EchoMode(huh.EchoModePassword).
@@ -119,50 +201,70 @@ func runSetupWizard() error {
 				return fmt.Errorf("setup cancelled: %w", err)
 			}
 			if apiKey == "" {
-				break // user chose to skip
+				break
 			}
 
-			// Connection test
-			ok := testConnection(name, provType, apiKey, authInput)
+			ok := testConnection(name, provType, apiKey, authInput, baseURL)
 			if ok {
 				break
 			}
-			// testConnection handles retry/skip/quit internally
-			// If we get here, user chose retry — loop again
+			action := handleTestFailure(hasBaseURL)
+			if action == "skip" {
+				break
+			}
+			if action == "quit" {
+				fmt.Println("Setup cancelled.")
+				os.Exit(0)
+			}
+			if action == "edit_url" {
+				huh.NewInput().
+					Title("Base URL").
+					Placeholder("e.g., http://localhost:11434/v1").
+					Value(&baseURL).
+					Run() //nolint:errcheck
+			}
 		}
 	}
 
-	// Model selection — filterable list from litellm, endpoint discovery, or text input fallback
+	// Model selection
 	model := selectModel(provType, baseURL, apiKey, metadataStore)
 
-	p := config.ProviderConfig{
+	// Primary — ask if not forced and other providers exist
+	primary := forcePrimary
+	if !forcePrimary && len(cfg.Providers) > 0 {
+		err = huh.NewConfirm().
+			Title("Set as primary provider?").
+			Description("The primary model synthesizes consensus responses").
+			Value(&primary).
+			Run()
+		if err != nil {
+			return fmt.Errorf("setup cancelled: %w", err)
+		}
+	}
+
+	// If setting this as primary, unset any existing primary
+	if primary {
+		for i := range cfg.Providers {
+			cfg.Providers[i].Primary = false
+		}
+	}
+
+	cfg.Providers = append(cfg.Providers, config.ProviderConfig{
 		Name:    name,
 		Type:    pt,
 		Auth:    authMethod,
 		Model:   model,
-		Primary: true,
+		Primary: primary,
 		BaseURL: baseURL,
-	}
+	})
 
-	cfg.Providers = append(cfg.Providers, p)
-
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid configuration: %w", err)
-	}
-
-	// Store API key if provided
+	// Store API key
 	if apiKey != "" {
 		store := auth.NewStore()
 		_ = store.Set(name, apiKey)
 	}
 
-	if err := cfg.Save(); err != nil {
-		return fmt.Errorf("saving config: %w", err)
-	}
-
-	fmt.Printf("\nConfiguration saved to %s\n", config.ConfigPath())
-	fmt.Println("You can add more providers by editing the config file.")
-	fmt.Println("Run 'polycode' to start the TUI.")
+	fmt.Printf("✓ Added %s (%s)\n", name, provType)
 	return nil
 }
 
@@ -268,46 +370,57 @@ func modelHintForType(t string) string {
 	return "model name"
 }
 
-// testConnection tests the provider connection and handles retry/skip/quit.
-// Returns true if the test passed or the user chose to skip.
-func testConnection(provName, provType, apiKey, authMethod string) bool {
+// testConnection tests the provider connection. Returns true on success.
+// For openai_compatible, uses /models as a lightweight connectivity check
+// since the chat endpoint requires a valid model name we don't have yet.
+func testConnection(provName, provType, apiKey, authMethod, baseURL string) bool {
 	fmt.Printf("Testing connection to %s...\n", provType)
 
-	// Build a temporary config with just this provider
+	// For openai_compatible, just verify the /models endpoint is reachable.
+	if provType == "openai_compatible" && baseURL != "" {
+		_, err := tokens.DiscoverModels(baseURL, apiKey)
+		if err != nil {
+			fmt.Printf("\u2715 Connection failed: %v\n", err)
+			return false
+		}
+		fmt.Println("\u2713 Connected successfully!")
+		return true
+	}
+
+	// For standard providers, do a full chat test
 	tmpCfg := &config.Config{
 		Providers: []config.ProviderConfig{{
 			Name:    provName,
 			Type:    config.ProviderType(provType),
 			Auth:    config.AuthMethod(authMethod),
 			Model:   config.DefaultModelByType[config.ProviderType(provType)],
+			BaseURL: baseURL,
 			Primary: true,
 		}},
 	}
 
-	// If no default model, use a placeholder — we just need to test auth
 	if tmpCfg.Providers[0].Model == "" {
 		tmpCfg.Providers[0].Model = "test-model"
 	}
 
-	// Create an in-memory auth store with the API key
 	memStore := auth.NewMemStore()
 	memStore.Set(provName, apiKey)
 
 	registry, err := provider.NewRegistryWithStore(tmpCfg, memStore)
 	if err != nil {
 		fmt.Printf("\u2715 Connection failed: %v\n", err)
-		return handleTestFailure()
+		return false
 	}
 
 	testProvider := registry.Primary()
 	if testProvider == nil {
 		fmt.Println("\u2715 Connection failed: no provider created")
-		return handleTestFailure()
+		return false
 	}
 
 	if err := testProvider.Authenticate(); err != nil {
 		fmt.Printf("\u2715 Connection failed: %v\n", err)
-		return handleTestFailure()
+		return false
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -321,14 +434,13 @@ func testConnection(provName, provType, apiKey, authMethod string) bool {
 	stream, err := testProvider.Query(ctx, msgs, opts)
 	if err != nil {
 		fmt.Printf("\u2715 Connection failed: %v\n", err)
-		return handleTestFailure()
+		return false
 	}
 
-	// Drain stream
 	for chunk := range stream {
 		if chunk.Error != nil {
 			fmt.Printf("\u2715 Connection failed: %v\n", chunk.Error)
-			return handleTestFailure()
+			return false
 		}
 	}
 
@@ -336,27 +448,25 @@ func testConnection(provName, provType, apiKey, authMethod string) bool {
 	return true
 }
 
-// handleTestFailure prompts for retry/skip/quit using a selectable list.
-// Returns true if skip, false if retry (caller should loop), and exits on quit.
-func handleTestFailure() bool {
+// handleTestFailure prompts for retry/skip/quit (and optionally edit URL).
+func handleTestFailure(showEditURL bool) string {
+	opts := []huh.Option[string]{
+		huh.NewOption("Retry credentials", "retry"),
+	}
+	if showEditURL {
+		opts = append(opts, huh.NewOption("Edit base URL", "edit_url"))
+	}
+	opts = append(opts,
+		huh.NewOption("Skip validation", "skip"),
+		huh.NewOption("Quit setup", "quit"),
+	)
+
 	var choice string
 	huh.NewSelect[string]().
 		Title("Connection failed").
-		Options(
-			huh.NewOption("Retry credentials", "retry"),
-			huh.NewOption("Skip validation", "skip"),
-			huh.NewOption("Quit setup", "quit"),
-		).
+		Options(opts...).
 		Value(&choice).
 		Run() //nolint:errcheck
 
-	switch choice {
-	case "skip":
-		return true // skip — caller continues
-	case "quit":
-		fmt.Println("Setup cancelled.")
-		os.Exit(0)
-	}
-	// "retry" or default — retry
-	return false
+	return choice
 }

@@ -43,9 +43,14 @@ func (m Model) renderChat() string {
 
 	// Main chat conversation log (always visible)
 	chatContent := m.buildChatLog()
-	if m.querying && m.consensusContent.Len() > 0 {
-		// Show streaming consensus inline in the chat during query
-		chatContent += m.consensusContent.String()
+	if m.querying {
+		if m.consensusContent.Len() > 0 {
+			// Show streaming consensus inline in the chat during query
+			chatContent += m.consensusContent.String()
+		} else {
+			// Show thinking indicator before any response arrives
+			chatContent += "\n" + m.spinner.View() + " Thinking..."
+		}
 	}
 	m.chatView.SetContent(chatContent)
 	if len(m.history) > 0 || m.querying {
@@ -202,9 +207,13 @@ func (m Model) renderHelp() string {
 		{"Ctrl+S", "Open settings"},
 		{"/settings", "Open settings (type in input)"},
 		{"/clear", "Clear conversation and reset context"},
+		{"/save", "Save session to disk"},
+		{"/export [path]", "Export session as shareable artifact"},
 		{"/plan <request>", "Run multi-model agent team pipeline"},
 		{"/mode <name>", "Switch mode: quick, balanced, thorough"},
 		{"/memory", "View repo memory"},
+		{"/help", "Toggle this help overlay"},
+		{"/exit", "Quit polycode"},
 		{"Tab", "Toggle individual provider panels"},
 		{"p", "Toggle consensus provenance panel"},
 		{"Enter", "Submit prompt / advance wizard step"},
@@ -310,7 +319,11 @@ func (m Model) renderStatusBar() string {
 
 	if m.querying {
 		parts = append(parts, m.styles.Dimmed.Render("  │  "))
-		parts = append(parts, m.spinner.View()+" querying...")
+		if m.consensusActive {
+			parts = append(parts, m.spinner.View()+" synthesizing...")
+		} else {
+			parts = append(parts, m.spinner.View()+" querying providers...")
+		}
 	}
 
 	bar := strings.Join(parts, "")

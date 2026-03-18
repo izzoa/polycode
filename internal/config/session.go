@@ -93,3 +93,15 @@ func ClearSession() error {
 	}
 	return nil
 }
+
+// ExportSession writes the session as JSON to the given file path.
+func ExportSession(s *Session, path string) error {
+	data, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshalling session: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return fmt.Errorf("writing export: %w", err)
+	}
+	return nil
+}

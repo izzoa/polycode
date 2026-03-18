@@ -137,7 +137,7 @@ goreleaser build --snapshot --clean
 polycode init
 ```
 
-The interactive wizard walks you through configuring your first provider with selectable lists for provider type, auth method, and model. For OpenAI-compatible endpoints (Ollama, vLLM, OpenRouter, etc.), the wizard automatically discovers available models from the server. Other providers show models from litellm's database with capability info. You'll need at least one API key (or a local model with `auth: none`).
+The interactive wizard walks you through configuring providers with selectable lists for provider type, auth method, and model. For OpenAI-compatible endpoints (Ollama, vLLM, OpenRouter, etc.), the wizard automatically discovers available models from the server. Other providers show models from litellm's database with capability info. After each provider, the wizard asks if you'd like to add another.
 
 ### 2. Launch
 
@@ -145,11 +145,26 @@ The interactive wizard walks you through configuring your first provider with se
 polycode
 ```
 
-You'll see the polycode splash screen, then the chat interface. Start typing and press Enter.
+You'll see the polycode splash screen, then the chat interface. Start typing and press Enter. Use `/help` to see all available commands.
 
 ### 3. Add more providers
 
-Press `Ctrl+S` in the TUI to open settings, then `a` to add another provider. The more providers you configure, the better the consensus.
+```bash
+polycode provider add
+```
+
+Or press `Ctrl+S` in the TUI to open settings, then `a`. The more providers you configure, the better the consensus.
+
+### Slash commands
+
+| Command | Action |
+|---------|--------|
+| `/help` | Show keyboard shortcuts and commands |
+| `/clear` | Clear conversation and reset context |
+| `/save` | Save session to disk |
+| `/export [path]` | Export session as JSON |
+| `/mode <name>` | Switch mode: quick, balanced, thorough |
+| `/exit` | Quit polycode |
 
 ---
 

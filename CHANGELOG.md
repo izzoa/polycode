@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-03-18
+
+### Added
+- **Multi-provider wizard loop**: `polycode init` now asks "Add another provider?" after each provider, letting users configure multiple providers in one session. Auto-sets `min_responses` based on provider count.
+- **`polycode provider add` command**: Add a new provider to an existing config without re-running init. Asks about primary designation and auto-bumps `min_responses`.
+- **Slash commands**: `/help`, `/save`, `/exit`, `/quit`, `/export [path]` added to the TUI chat input alongside existing `/clear`, `/settings`, `/mode`, `/memory`, `/plan`.
+- **"Thinking..." indicator**: Chat area shows an animated spinner with "Thinking..." while waiting for the first response chunk from providers.
+- **Status bar phase indicator**: Shows "querying providers..." while providers are processing and "synthesizing..." during consensus, replacing the generic "querying..." label.
+- **"Edit base URL" on connection failure**: `openai_compatible` providers now show an "Edit base URL" option in the connection test failure menu.
+
+### Fixed
+- **Connection test passes base URL**: `openai_compatible` connection tests no longer fail with "unsupported protocol scheme" due to missing base URL.
+- **Lightweight connection test for openai_compatible**: Uses `GET /models` instead of a chat completion, avoiding 404s from unrecognized placeholder model names.
+
 ## [1.3.2] - 2026-03-18
 
 ### Fixed

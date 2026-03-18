@@ -458,6 +458,29 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 					}
 					return m, nil
 				}
+				if prompt == "/help" || prompt == "/?" {
+					m.textarea.Reset()
+					m.showHelp = !m.showHelp
+					return m, nil
+				}
+				if prompt == "/exit" || prompt == "/quit" {
+					return m, tea.Quit
+				}
+				if prompt == "/save" {
+					m.textarea.Reset()
+					if m.onSave != nil {
+						m.onSave()
+					}
+					return m, nil
+				}
+				if strings.HasPrefix(prompt, "/export") {
+					path := strings.TrimSpace(strings.TrimPrefix(prompt, "/export"))
+					m.textarea.Reset()
+					if m.onExport != nil {
+						m.onExport(path)
+					}
+					return m, nil
+				}
 				m.currentPrompt = prompt
 				m.textarea.Reset()
 				m.resetPanels()

@@ -393,6 +393,32 @@ func startTUI(cfg *config.Config) error {
 		_ = config.ClearSession()
 	})
 
+	model.SetSaveHandler(func() {
+		session, _ := config.LoadSession()
+		if session != nil {
+			_ = config.SaveSession(session)
+		}
+		program.Send(tui.ConsensusChunkMsg{Delta: "\n*Session saved.*\n", Done: true})
+	})
+
+	model.SetExportHandler(func(path string) {
+		go func() {
+			session, _ := config.LoadSession()
+			if session == nil {
+				program.Send(tui.ConsensusChunkMsg{Delta: "\n*No session to export.*\n", Done: true})
+				return
+			}
+			if path == "" {
+				path = "polycode-export.json"
+			}
+			if err := config.ExportSession(session, path); err != nil {
+				program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\n*Export failed: %v*\n", err), Done: true})
+				return
+			}
+			program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\n*Session exported to %s*\n", path), Done: true})
+		}()
+	})
+
 	// Set up the submit handler that bridges TUI → pipeline
 	model.SetSubmitHandler(func(prompt string) {
 		go func() {

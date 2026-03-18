@@ -186,6 +186,8 @@ type Model struct {
 	onPlan          func(request string)
 	onModeChange    func(mode string)
 	onMemory        func(args string)
+	onSave          func()
+	onExport        func(path string)
 	onConfigChanged func(*config.Config)
 	onTestProvider  func(providerName string)
 
@@ -323,6 +325,16 @@ func (m *Model) SetModeChangeHandler(handler func(mode string)) {
 // SetMemoryHandler sets the callback for /memory command.
 func (m *Model) SetMemoryHandler(handler func(args string)) {
 	m.onMemory = handler
+}
+
+// SetSaveHandler sets the callback for /save command.
+func (m *Model) SetSaveHandler(handler func()) {
+	m.onSave = handler
+}
+
+// SetExportHandler sets the callback for /export command.
+func (m *Model) SetExportHandler(handler func(path string)) {
+	m.onExport = handler
 }
 
 // AppendHistory adds an exchange to the display history (used for session restore).

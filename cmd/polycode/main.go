@@ -60,6 +60,23 @@ func main() {
 	authCmd.AddCommand(authLoginCmd, authLogoutCmd, authStatusCmd)
 	rootCmd.AddCommand(authCmd)
 
+	// Provider subcommands
+	providerCmd := &cobra.Command{
+		Use:   "provider",
+		Short: "Manage providers",
+	}
+
+	providerAddCmd := &cobra.Command{
+		Use:   "add",
+		Short: "Add a new LLM provider to your config",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runAddProvider()
+		},
+	}
+
+	providerCmd.AddCommand(providerAddCmd)
+	rootCmd.AddCommand(providerCmd)
+
 	// Init command
 	initCmd := &cobra.Command{
 		Use:   "init",
