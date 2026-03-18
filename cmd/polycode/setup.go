@@ -71,8 +71,22 @@ func runSetupWizard() error {
 		return fmt.Errorf("setup cancelled: %w", err)
 	}
 
-	// Auth method — selectable list filtered by provider type
 	pt := config.ProviderType(provType)
+
+	// Base URL — text input (only for openai_compatible, collected early for model discovery)
+	var baseURL string
+	if pt == config.ProviderTypeOpenAICompatible {
+		err = huh.NewInput().
+			Title("Base URL").
+			Placeholder("e.g., http://localhost:11434/v1").
+			Value(&baseURL).
+			Run()
+		if err != nil {
+			return fmt.Errorf("setup cancelled: %w", err)
+		}
+	}
+
+	// Auth method — selectable list filtered by provider type
 	validAuths := config.AuthMethodsByType[pt]
 	var authInput string
 	if len(validAuths) > 0 {
@@ -118,8 +132,8 @@ func runSetupWizard() error {
 		}
 	}
 
-	// Model selection — filterable list from litellm or text input fallback
-	model := selectModel(provType, metadataStore)
+	// Model selection — filterable list from litellm, endpoint discovery, or text input fallback
+	model := selectModel(provType, baseURL, apiKey, metadataStore)
 
 	p := config.ProviderConfig{
 		Name:    name,
@@ -127,20 +141,7 @@ func runSetupWizard() error {
 		Auth:    authMethod,
 		Model:   model,
 		Primary: true,
-	}
-
-	// Base URL — text input (only for openai_compatible)
-	if pt == config.ProviderTypeOpenAICompatible {
-		var baseURL string
-		err = huh.NewInput().
-			Title("Base URL").
-			Placeholder("e.g., http://localhost:11434/v1").
-			Value(&baseURL).
-			Run()
-		if err != nil {
-			return fmt.Errorf("setup cancelled: %w", err)
-		}
-		p.BaseURL = baseURL
+		BaseURL: baseURL,
 	}
 
 	cfg.Providers = append(cfg.Providers, p)
@@ -165,10 +166,25 @@ func runSetupWizard() error {
 	return nil
 }
 
-// selectModel shows a filterable model list from litellm or falls back to text input.
-func selectModel(provType string, store *tokens.MetadataStore) string {
+// selectModel shows a filterable model list from litellm or endpoint discovery,
+// falling back to text input when neither is available.
+func selectModel(provType, baseURL, apiKey string, store *tokens.MetadataStore) string {
 	var models []config.ModelSummary
-	if store != nil {
+
+	// For openai_compatible, try discovering models from the endpoint first
+	if provType == "openai_compatible" && baseURL != "" {
+		fmt.Print("Discovering models...")
+		ids, err := tokens.DiscoverModels(baseURL, apiKey)
+		if err != nil {
+			fmt.Printf(" could not discover models: %v\n", err)
+		} else {
+			fmt.Printf(" found %d models\n", len(ids))
+			models = tokens.EnrichWithMetadata(ids, store)
+		}
+	}
+
+	// Fall back to litellm if no discovered models
+	if len(models) == 0 && store != nil {
 		models = store.ModelsForProvider(provType)
 	}
 
@@ -189,7 +205,7 @@ func selectModel(provType string, store *tokens.MetadataStore) string {
 		return model
 	}
 
-	// Build selectable options from litellm models
+	// Build selectable options
 	const customSentinel = "__custom__"
 	opts := make([]huh.Option[string], 0, len(models)+1)
 

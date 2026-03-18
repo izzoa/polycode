@@ -79,6 +79,7 @@ Polycode fetches model information from [litellm's model database](https://githu
 - Three-tier limit resolution: config override > litellm data > built-in fallback
 - Works offline using cached or hardcoded data
 - Capability awareness: function calling, vision, reasoning support
+- **Endpoint discovery** for OpenAI-compatible providers: queries `GET /models` on the configured base URL to list available models, cross-referenced with litellm for capability metadata
 
 ### Tool Execution
 
@@ -136,7 +137,7 @@ goreleaser build --snapshot --clean
 polycode init
 ```
 
-The interactive wizard walks you through configuring your first provider. You'll need at least one API key.
+The interactive wizard walks you through configuring your first provider with selectable lists for provider type, auth method, and model. For OpenAI-compatible endpoints (Ollama, vLLM, OpenRouter, etc.), the wizard automatically discovers available models from the server. Other providers show models from litellm's database with capability info. You'll need at least one API key (or a local model with `auth: none`).
 
 ### 2. Launch
 
