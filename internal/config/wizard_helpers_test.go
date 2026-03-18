@@ -25,22 +25,22 @@ func TestAuthMethodsByType(t *testing.T) {
 		}
 	}
 
-	// Anthropic should have api_key and oauth
+	// Anthropic should have api_key only (no OAuth for third-party apps)
 	anthMethods := AuthMethodsByType[ProviderTypeAnthropic]
 	if !containsAuthMethod(anthMethods, AuthMethodAPIKey) {
 		t.Error("anthropic should support api_key")
 	}
-	if !containsAuthMethod(anthMethods, AuthMethodOAuth) {
-		t.Error("anthropic should support oauth")
+	if containsAuthMethod(anthMethods, AuthMethodOAuth) {
+		t.Error("anthropic should not support oauth (not available for third-party apps)")
 	}
 
-	// OpenAI should have api_key and oauth
+	// OpenAI should have api_key only (no OAuth for third-party apps)
 	openaiMethods := AuthMethodsByType[ProviderTypeOpenAI]
 	if !containsAuthMethod(openaiMethods, AuthMethodAPIKey) {
 		t.Error("openai should support api_key")
 	}
-	if !containsAuthMethod(openaiMethods, AuthMethodOAuth) {
-		t.Error("openai should support oauth")
+	if containsAuthMethod(openaiMethods, AuthMethodOAuth) {
+		t.Error("openai should not support oauth (not available for third-party apps)")
 	}
 
 	// openai_compatible should have api_key and none

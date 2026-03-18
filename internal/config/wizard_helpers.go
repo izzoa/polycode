@@ -6,9 +6,11 @@ import (
 )
 
 // AuthMethodsByType maps provider type to valid auth methods.
+// Note: OAuth is only offered for Google (which has a public device flow).
+// Anthropic and OpenAI do not support OAuth for third-party apps.
 var AuthMethodsByType = map[ProviderType][]AuthMethod{
-	ProviderTypeAnthropic:        {AuthMethodAPIKey, AuthMethodOAuth},
-	ProviderTypeOpenAI:           {AuthMethodAPIKey, AuthMethodOAuth},
+	ProviderTypeAnthropic:        {AuthMethodAPIKey},
+	ProviderTypeOpenAI:           {AuthMethodAPIKey},
 	ProviderTypeGoogle:           {AuthMethodAPIKey, AuthMethodOAuth},
 	ProviderTypeOpenAICompatible: {AuthMethodAPIKey, AuthMethodNone},
 }

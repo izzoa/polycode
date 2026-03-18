@@ -9,7 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [1.3.2] - 2026-03-18
 
 ### Fixed
-- **OAuth authentication now works out of the box**: Providers with `auth: oauth` previously failed because no OAuth endpoints were configured. Built-in default OAuth device flow endpoints are now supplied for Anthropic and Google when no explicit `oauth_client_id` is set in config. Providers without built-in defaults get a clear error message instead of a circular "run polycode auth login" loop.
+- **Remove broken OAuth defaults for Anthropic and OpenAI**: These providers do not support OAuth for third-party apps. The wizard no longer offers `oauth` as an auth method for Anthropic or OpenAI — use `api_key` instead. Google retains OAuth support (requires explicit `oauth_client_id` in config).
+- **Clear error when OAuth is misconfigured**: Selecting `auth: oauth` without providing `oauth_client_id`/`oauth_device_url`/`oauth_token_url` now gives an actionable error message instead of a circular "run polycode auth login" loop.
 
 ## [1.3.1] - 2026-03-18
 
