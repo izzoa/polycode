@@ -5,6 +5,8 @@ import (
 	"os"
 	"runtime/debug"
 
+	"github.com/izzoa/polycode/internal/auth"
+	"github.com/izzoa/polycode/internal/provider"
 	"github.com/spf13/cobra"
 )
 
@@ -145,15 +147,35 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Authenticating with %s...\n", providerName)
-	// Auth flow is handled by provider adapters
-	fmt.Println("Authentication successful.")
-	return nil
+
+	// Create the registry so provider adapters handle the auth flow
+	// (API key lookup, OAuth device flow, etc.)
+	registry, err := provider.NewRegistry(cfg)
+	if err != nil {
+		return fmt.Errorf("creating provider registry: %w", err)
+	}
+
+	// Find and authenticate the requested provider
+	for _, p := range registry.Providers() {
+		if p.ID() == providerName {
+			if err := p.Authenticate(); err != nil {
+				return fmt.Errorf("authentication failed: %w", err)
+			}
+			fmt.Println("Authentication successful.")
+			return nil
+		}
+	}
+
+	return fmt.Errorf("provider %q not found in registry", providerName)
 }
 
 func runAuthLogout(cmd *cobra.Command, args []string) error {
 	providerName := args[0]
 	fmt.Printf("Removing credentials for %s...\n", providerName)
-	// Credential removal handled by auth package
+	store := auth.NewStore()
+	if err := store.Delete(providerName); err != nil {
+		return fmt.Errorf("removing credentials: %w", err)
+	}
 	fmt.Println("Credentials removed.")
 	return nil
 }
