@@ -6,6 +6,7 @@ import (
 	"runtime/debug"
 
 	"github.com/izzoa/polycode/internal/auth"
+	"github.com/izzoa/polycode/internal/config"
 	"github.com/izzoa/polycode/internal/provider"
 	"github.com/spf13/cobra"
 )
@@ -76,6 +77,39 @@ func main() {
 
 	providerCmd.AddCommand(providerAddCmd)
 	rootCmd.AddCommand(providerCmd)
+
+	// Config subcommands
+	configCmd := &cobra.Command{
+		Use:   "config",
+		Short: "View and edit polycode configuration",
+	}
+
+	configEditCmd := &cobra.Command{
+		Use:   "edit",
+		Short: "Interactively edit providers and settings",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runConfigEdit()
+		},
+	}
+
+	configShowCmd := &cobra.Command{
+		Use:   "show",
+		Short: "Print current configuration",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runConfigShow()
+		},
+	}
+
+	configPathCmd := &cobra.Command{
+		Use:   "path",
+		Short: "Print config file location",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Println(config.ConfigPath())
+		},
+	}
+
+	configCmd.AddCommand(configEditCmd, configShowCmd, configPathCmd)
+	rootCmd.AddCommand(configCmd)
 
 	// Init command
 	initCmd := &cobra.Command{

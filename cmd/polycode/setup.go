@@ -86,6 +86,190 @@ func runSetupWizard() error {
 	return nil
 }
 
+// runConfigShow prints the current config in a readable format.
+func runConfigShow() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	fmt.Printf("Config file: %s\n\n", config.ConfigPath())
+	fmt.Printf("Providers (%d):\n", len(cfg.Providers))
+	for _, p := range cfg.Providers {
+		primary := ""
+		if p.Primary {
+			primary = " ★"
+		}
+		fmt.Printf("  %-15s  type=%-20s model=%-30s auth=%s%s\n",
+			p.Name, p.Type, p.Model, p.Auth, primary)
+		if p.BaseURL != "" {
+			fmt.Printf("  %-15s  base_url=%s\n", "", p.BaseURL)
+		}
+	}
+
+	fmt.Printf("\nConsensus:\n")
+	fmt.Printf("  timeout:        %s\n", cfg.Consensus.Timeout)
+	fmt.Printf("  min_responses:  %d\n", cfg.Consensus.MinResponses)
+
+	fmt.Printf("\nMode: %s\n", cfg.DefaultMode)
+	return nil
+}
+
+// runConfigEdit runs an interactive editor over the existing config.
+func runConfigEdit() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	cachePath := filepath.Join(config.ConfigDir(), "model_metadata.json")
+	metadataStore, _ := tokens.NewMetadataStore("", cachePath, 24*time.Hour)
+
+	fmt.Println("=== Polycode Config Editor ===")
+	fmt.Println()
+
+	for {
+		// Build menu options
+		opts := []huh.Option[string]{}
+		for _, p := range cfg.Providers {
+			label := fmt.Sprintf("Edit %s (%s, %s)", p.Name, p.Type, p.Model)
+			if p.Primary {
+				label += " ★"
+			}
+			opts = append(opts, huh.NewOption(label, "edit:"+p.Name))
+		}
+		opts = append(opts,
+			huh.NewOption("Add new provider", "add"),
+			huh.NewOption("Remove a provider", "remove"),
+			huh.NewOption("Done — save and exit", "done"),
+		)
+
+		var choice string
+		err := huh.NewSelect[string]().
+			Title("What would you like to do?").
+			Options(opts...).
+			Value(&choice).
+			Run()
+		if err != nil {
+			break // Ctrl+C
+		}
+
+		switch {
+		case choice == "done":
+			if err := cfg.Validate(); err != nil {
+				fmt.Printf("Validation error: %v\n", err)
+				continue
+			}
+			if err := cfg.Save(); err != nil {
+				return fmt.Errorf("saving config: %w", err)
+			}
+			fmt.Printf("\nConfiguration saved to %s\n", config.ConfigPath())
+			return nil
+
+		case choice == "add":
+			isPrimary := len(cfg.Providers) == 0
+			if err := addProviderWizard(cfg, metadataStore, isPrimary); err != nil {
+				fmt.Printf("Error: %v\n", err)
+			}
+			if len(cfg.Providers) >= 2 && cfg.Consensus.MinResponses < 2 {
+				cfg.Consensus.MinResponses = 2
+			}
+
+		case choice == "remove":
+			if len(cfg.Providers) == 0 {
+				fmt.Println("No providers to remove.")
+				continue
+			}
+			removeOpts := make([]huh.Option[string], len(cfg.Providers))
+			for i, p := range cfg.Providers {
+				removeOpts[i] = huh.NewOption(p.Name, p.Name)
+			}
+			var removeName string
+			huh.NewSelect[string]().
+				Title("Remove which provider?").
+				Options(removeOpts...).
+				Value(&removeName).
+				Run() //nolint:errcheck
+			if removeName != "" {
+				newProviders := make([]config.ProviderConfig, 0, len(cfg.Providers))
+				for _, p := range cfg.Providers {
+					if p.Name != removeName {
+						newProviders = append(newProviders, p)
+					}
+				}
+				cfg.Providers = newProviders
+				// Remove credentials
+				store := auth.NewStore()
+				_ = store.Delete(removeName)
+				fmt.Printf("✓ Removed %s\n", removeName)
+				// If we removed the primary, set first remaining as primary
+				hasPrimary := false
+				for _, p := range cfg.Providers {
+					if p.Primary {
+						hasPrimary = true
+					}
+				}
+				if !hasPrimary && len(cfg.Providers) > 0 {
+					cfg.Providers[0].Primary = true
+					fmt.Printf("  %s is now the primary provider\n", cfg.Providers[0].Name)
+				}
+			}
+
+		case strings.HasPrefix(choice, "edit:"):
+			provName := strings.TrimPrefix(choice, "edit:")
+			for i, p := range cfg.Providers {
+				if p.Name != provName {
+					continue
+				}
+				// Let user edit model or set as primary
+				editOpts := []huh.Option[string]{
+					huh.NewOption("Change model (current: "+p.Model+")", "model"),
+					huh.NewOption("Set as primary", "primary"),
+					huh.NewOption("Change API key", "apikey"),
+					huh.NewOption("Back", "back"),
+				}
+				var editChoice string
+				huh.NewSelect[string]().
+					Title("Edit "+p.Name).
+					Options(editOpts...).
+					Value(&editChoice).
+					Run() //nolint:errcheck
+
+				switch editChoice {
+				case "model":
+					model := selectModel(string(p.Type), p.BaseURL, "", metadataStore)
+					if model != "" {
+						cfg.Providers[i].Model = model
+						fmt.Printf("✓ Model changed to %s\n", model)
+					}
+				case "primary":
+					for j := range cfg.Providers {
+						cfg.Providers[j].Primary = false
+					}
+					cfg.Providers[i].Primary = true
+					fmt.Printf("✓ %s is now the primary provider\n", p.Name)
+				case "apikey":
+					var newKey string
+					huh.NewInput().
+						Title("New API key for " + p.Name).
+						EchoMode(huh.EchoModePassword).
+						Value(&newKey).
+						Run() //nolint:errcheck
+					if newKey != "" {
+						store := auth.NewStore()
+						_ = store.Set(p.Name, newKey)
+						fmt.Printf("✓ API key updated for %s\n", p.Name)
+					}
+				}
+				break
+			}
+		}
+		fmt.Println()
+	}
+
+	return nil
+}
+
 // runAddProvider adds a provider to an existing config (polycode provider add).
 func runAddProvider() error {
 	cfg, err := config.Load()

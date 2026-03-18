@@ -52,6 +52,14 @@ func (m Model) renderChat() string {
 			chatContent += "\n" + m.spinner.View() + " Thinking..."
 		}
 	}
+
+	// Show last error prominently below chat content
+	if m.lastError != "" && !m.querying {
+		errStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("196")).
+			Bold(true)
+		chatContent += "\n\n" + errStyle.Render("Error: "+m.lastError)
+	}
 	m.chatView.SetContent(chatContent)
 	if len(m.history) > 0 || m.querying {
 		sections = append(sections, m.renderChatPanel())

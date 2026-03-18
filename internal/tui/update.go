@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -283,6 +284,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.querying = true
 		m.consensusActive = false
 		m.consensusContent.Reset()
+		m.lastError = ""
 		return m, m.spinner.Tick
 
 	case QueryDoneMsg:
@@ -309,6 +311,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if msg.Error != nil {
 					m.panels[i].Status = StatusFailed
 					m.panels[i].Content.WriteString("\n[ERROR: " + msg.Error.Error() + "]")
+					// Surface provider errors so they're visible without Tab
+					m.lastError = fmt.Sprintf("%s: %s", msg.ProviderName, msg.Error.Error())
 				} else if msg.Done {
 					m.panels[i].Status = StatusDone
 				} else {
@@ -325,8 +329,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ConsensusChunkMsg:
 		m.consensusActive = true
 		if msg.Error != nil {
+			m.lastError = msg.Error.Error()
 			m.consensusContent.WriteString("\n[ERROR: " + msg.Error.Error() + "]")
-		} else if !msg.Done {
+		} else if msg.Done {
+			// Successful completion — clear any prior error
+			if m.consensusContent.Len() > 0 && m.lastError == "" {
+				// only clear if we actually got content (not just Done after error)
+			}
+		} else {
+			m.lastError = "" // clear error on first successful content
 			m.consensusContent.WriteString(msg.Delta)
 		}
 		m.consensusView.SetContent(m.consensusContent.String())
@@ -395,6 +406,32 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 	case "tab":
+		// Slash command autocomplete when input starts with "/"
+		input := m.textarea.Value()
+		if strings.HasPrefix(input, "/") && !m.querying {
+			prefix := strings.TrimSpace(input)
+			// Collect matching commands
+			var matches []string
+			for _, cmd := range m.slashCommands {
+				if strings.HasPrefix(cmd, prefix) {
+					matches = append(matches, cmd)
+				}
+			}
+			if len(matches) > 0 {
+				// Reset cycle if prefix changed
+				if prefix != m.slashCompPrefix {
+					m.slashCompIdx = 0
+					m.slashCompPrefix = prefix
+				} else {
+					m.slashCompIdx = (m.slashCompIdx + 1) % len(matches)
+				}
+				m.textarea.SetValue(matches[m.slashCompIdx])
+				return m, nil
+			}
+		}
+		// Fall through: toggle provider panels
+		m.slashCompIdx = -1
+		m.slashCompPrefix = ""
 		m.showIndividual = !m.showIndividual
 		return m, nil
 	case "p":
@@ -449,6 +486,7 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 					m.textarea.Reset()
 					m.history = nil
 					m.currentPrompt = ""
+					m.lastError = ""
 					m.consensusContent.Reset()
 					m.consensusView.SetContent("")
 					m.chatView.SetContent("")

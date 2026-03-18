@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-03-18
+
+### Added
+- **Slash command autocomplete**: Type `/` and press Tab to cycle through matching commands (e.g., `/cl` + Tab → `/clear`)
+- **`polycode config edit`**: Interactive config editor — add, remove, or edit providers (change model, API key, primary designation) from the command line
+- **`polycode config show`**: Print current configuration summary
+- **`polycode config path`**: Print config file location
+- **Prominent error display**: Provider and consensus errors now show as bold red text in the main chat area instead of being hidden in provider panels
+- **Version-aware base URL handling**: OpenAI-compatible providers with versioned base URLs (e.g., `/v4`) no longer get `/v1` doubled in the request path
+
 ## [1.4.1] - 2026-03-18
 
 ### Fixed

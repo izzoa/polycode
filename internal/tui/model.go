@@ -112,6 +112,9 @@ type Model struct {
 	history       []Exchange // completed exchanges for display
 	currentPrompt string     // the prompt being processed right now
 
+	// Error display — surfaced prominently in the chat area
+	lastError string // cleared on next successful query or /clear
+
 	// Token usage (updated after each query)
 	tokenUsage map[string]tokenDisplay // provider name → display info
 
@@ -126,6 +129,11 @@ type Model struct {
 	confirmPending     bool
 	confirmDescription string
 	confirmResponseCh  chan bool
+
+	// Slash command autocomplete
+	slashCommands    []string // all available commands
+	slashCompIdx     int      // current completion index (-1 = none)
+	slashCompPrefix  string   // the prefix being completed
 
 	// Tool execution status
 	toolStatus string // e.g., "Reading main.go..." — shown in consensus panel during tool exec
@@ -293,6 +301,12 @@ func NewModel(providerNames []string, primaryName string, version string) Model 
 		styles:         defaultStyles(),
 		mode:           viewChat,
 		wizardInput:    ti,
+		slashCommands: []string{
+			"/clear", "/exit", "/export", "/help",
+			"/memory", "/mode ", "/plan ", "/quit",
+			"/save", "/settings",
+		},
+		slashCompIdx: -1,
 	}
 }
 

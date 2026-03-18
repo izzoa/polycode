@@ -13,6 +13,17 @@ import (
 	"github.com/izzoa/polycode/internal/config"
 )
 
+// hasVersionPath checks if a URL path ends with a version segment like /v1, /v4, etc.
+func hasVersionPath(baseURL string) bool {
+	trimmed := strings.TrimRight(baseURL, "/")
+	lastSlash := strings.LastIndex(trimmed, "/")
+	if lastSlash < 0 {
+		return false
+	}
+	segment := trimmed[lastSlash+1:]
+	return len(segment) >= 2 && segment[0] == 'v' && segment[1] >= '0' && segment[1] <= '9'
+}
+
 // OpenAICompatProvider implements Provider for OpenAI-compatible APIs with a
 // configurable base URL. It reuses the OpenAI SSE parsing logic.
 type OpenAICompatProvider struct {
@@ -95,7 +106,12 @@ func (p *OpenAICompatProvider) Query(ctx context.Context, messages []Message, op
 		return nil, fmt.Errorf("openai-compat: marshal request: %w", err)
 	}
 
+	// If the base URL already contains a version path (e.g., /v4, /v2),
+	// append only /chat/completions. Otherwise append /v1/chat/completions.
 	url := p.baseURL + "/v1/chat/completions"
+	if hasVersionPath(p.baseURL) {
+		url = p.baseURL + "/chat/completions"
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
