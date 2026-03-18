@@ -54,7 +54,7 @@ type ProviderPanel struct {
 	Name      string
 	IsPrimary bool
 	Status    ProviderStatus
-	Content   strings.Builder
+	Content   *strings.Builder
 	Viewport  viewport.Model
 }
 
@@ -97,7 +97,7 @@ type Model struct {
 	providers []string // provider names in order
 
 	// Consensus panel
-	consensusContent strings.Builder
+	consensusContent *strings.Builder
 	consensusView    viewport.Model
 	consensusActive  bool
 
@@ -276,6 +276,7 @@ func NewModel(providerNames []string, primaryName string, version string) Model 
 			Name:      name,
 			IsPrimary: name == primaryName,
 			Status:    StatusIdle,
+			Content:   &strings.Builder{},
 			Viewport:  vp,
 		}
 	}
@@ -287,11 +288,12 @@ func NewModel(providerNames []string, primaryName string, version string) Model 
 	ti.CharLimit = 256
 
 	return Model{
-		textarea:       ta,
-		panels:         panels,
-		providers:      providerNames,
-		consensusView:  consensusVP,
-		chatView:       chatVP,
+		textarea:         ta,
+		panels:           panels,
+		providers:        providerNames,
+		consensusContent: &strings.Builder{},
+		consensusView:    consensusVP,
+		chatView:         chatVP,
 		showSplash:     true,
 		version:        version,
 		currentMode:    "balanced",

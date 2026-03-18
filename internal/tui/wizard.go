@@ -727,6 +727,7 @@ func (m *Model) rebuildPanelsFromConfig() {
 				Name:      pc.Name,
 				IsPrimary: pc.Primary,
 				Status:    StatusIdle,
+				Content:   &strings.Builder{},
 			}
 		}
 	}

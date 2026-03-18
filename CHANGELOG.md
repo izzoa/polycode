@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-03-18
+
+### Fixed
+- **Fix panic: "strings: illegal use of non-zero Builder copied by value"**: `strings.Builder` fields in the TUI model were copied by value when Bubble Tea copies the model on each Update. Changed `consensusContent` and `ProviderPanel.Content` to pointer types (`*strings.Builder`) to avoid the copy-after-use panic.
+
+### Added
+- **Edit base URL in config editor**: `polycode config edit` now shows a "Change base URL" option for providers that have one configured
+
 ## [1.5.1] - 2026-03-18
 
 ### Added

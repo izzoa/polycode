@@ -225,10 +225,15 @@ func runConfigEdit() error {
 				editOpts := []huh.Option[string]{
 					huh.NewOption("Rename (current: "+p.Name+")", "rename"),
 					huh.NewOption("Change model (current: "+p.Model+")", "model"),
+				}
+				if p.BaseURL != "" {
+					editOpts = append(editOpts, huh.NewOption("Change base URL (current: "+p.BaseURL+")", "baseurl"))
+				}
+				editOpts = append(editOpts,
 					huh.NewOption("Set as primary", "primary"),
 					huh.NewOption("Change API key", "apikey"),
 					huh.NewOption("Back", "back"),
-				}
+				)
 				var editChoice string
 				huh.NewSelect[string]().
 					Title("Edit "+p.Name).
@@ -258,6 +263,17 @@ func runConfigEdit() error {
 					if model != "" {
 						cfg.Providers[i].Model = model
 						fmt.Printf("✓ Model changed to %s\n", model)
+					}
+				case "baseurl":
+					var newURL string
+					huh.NewInput().
+						Title("New base URL for " + p.Name).
+						Placeholder(p.BaseURL).
+						Value(&newURL).
+						Run() //nolint:errcheck
+					if newURL != "" {
+						cfg.Providers[i].BaseURL = newURL
+						fmt.Printf("✓ Base URL changed to %s\n", newURL)
 					}
 				case "primary":
 					for j := range cfg.Providers {
