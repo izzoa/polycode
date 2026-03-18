@@ -223,6 +223,7 @@ func runConfigEdit() error {
 				}
 				// Let user edit model or set as primary
 				editOpts := []huh.Option[string]{
+					huh.NewOption("Rename (current: "+p.Name+")", "rename"),
 					huh.NewOption("Change model (current: "+p.Model+")", "model"),
 					huh.NewOption("Set as primary", "primary"),
 					huh.NewOption("Change API key", "apikey"),
@@ -236,6 +237,22 @@ func runConfigEdit() error {
 					Run() //nolint:errcheck
 
 				switch editChoice {
+				case "rename":
+					var newName string
+					huh.NewInput().
+						Title("New name for " + p.Name).
+						Value(&newName).
+						Run() //nolint:errcheck
+					if newName != "" && newName != p.Name {
+						// Migrate credentials to new name
+						store := auth.NewStore()
+						if key, err := store.Get(p.Name); err == nil && key != "" {
+							_ = store.Set(newName, key)
+							_ = store.Delete(p.Name)
+						}
+						cfg.Providers[i].Name = newName
+						fmt.Printf("✓ Renamed to %s\n", newName)
+					}
 				case "model":
 					model := selectModel(string(p.Type), p.BaseURL, "", metadataStore)
 					if model != "" {

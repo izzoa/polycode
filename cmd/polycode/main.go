@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+	"strings"
 
+	"github.com/charmbracelet/huh"
 	"github.com/izzoa/polycode/internal/auth"
 	"github.com/izzoa/polycode/internal/config"
 	"github.com/izzoa/polycode/internal/provider"
@@ -47,8 +49,8 @@ func main() {
 
 	authLogoutCmd := &cobra.Command{
 		Use:   "logout [provider]",
-		Short: "Remove credentials for a provider",
-		Args:  cobra.ExactArgs(1),
+		Short: "Remove credentials for a provider (omit name to pick from list)",
+		Args:  cobra.MaximumNArgs(1),
 		RunE:  runAuthLogout,
 	}
 
@@ -221,10 +223,41 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 }
 
 func runAuthLogout(cmd *cobra.Command, args []string) error {
-	providerName := args[0]
+	var providerName string
+	if len(args) > 0 {
+		providerName = args[0]
+	} else {
+		// No arg — load config and let user pick
+		cfg, err := config.Load()
+		if err != nil {
+			return fmt.Errorf("loading config: %w", err)
+		}
+		if len(cfg.Providers) == 0 {
+			fmt.Println("No providers configured.")
+			return nil
+		}
+		opts := make([]huh.Option[string], len(cfg.Providers))
+		for i, p := range cfg.Providers {
+			opts[i] = huh.NewOption(p.Name, p.Name)
+		}
+		err = huh.NewSelect[string]().
+			Title("Remove credentials for which provider?").
+			Options(opts...).
+			Value(&providerName).
+			Run()
+		if err != nil {
+			return nil // cancelled
+		}
+	}
+
 	fmt.Printf("Removing credentials for %s...\n", providerName)
 	store := auth.NewStore()
 	if err := store.Delete(providerName); err != nil {
+		// Treat "not found" as success — credential was already gone
+		if strings.Contains(err.Error(), "not found") {
+			fmt.Println("No credentials found (already removed).")
+			return nil
+		}
 		return fmt.Errorf("removing credentials: %w", err)
 	}
 	fmt.Println("Credentials removed.")

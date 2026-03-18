@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-03-18
+
+### Added
+- **Rename provider in config editor**: `polycode config edit` now has a "Rename" option that migrates credentials to the new name
+- **`polycode auth logout` interactive picker**: Running without args shows a selectable list of providers instead of requiring the exact name
+
+### Fixed
+- **`polycode auth logout` no longer errors on missing credentials**: "Credential not found" is now treated as success (already removed) instead of a hard error
+
 ## [1.5.0] - 2026-03-18
 
 ### Added
