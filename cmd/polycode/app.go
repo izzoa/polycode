@@ -162,8 +162,10 @@ func startTUI(cfg *config.Config) error {
 	}
 	model.SetConfig(cfg)
 
-	// Create the Bubble Tea program
-	program := tea.NewProgram(model, tea.WithAltScreen())
+	// Declare program early so handler closures can capture it.
+	// It's set after NewProgram but before Run(), so it's always
+	// non-nil by the time any handler goroutine executes.
+	var program *tea.Program
 
 	// Set up config change handler that rebuilds registry + pipeline
 	model.SetConfigChangeHandler(func(newCfg *config.Config) {
@@ -635,6 +637,10 @@ func startTUI(cfg *config.Config) error {
 			program.Send(tui.QueryDoneMsg{})
 		}()
 	})
+
+	// Create the Bubble Tea program AFTER all handlers are wired,
+	// so the model copy Bubble Tea receives has all callbacks set.
+	program = tea.NewProgram(model, tea.WithAltScreen())
 
 	// Run the TUI
 	if _, err := program.Run(); err != nil {

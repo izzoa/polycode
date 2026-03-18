@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-03-18
+
+### Fixed
+- **TUI chat submission now works**: `tea.NewProgram(model)` was called before `Set*Handler()`, so Bubble Tea ran a copy of the model with all callbacks nil. Pressing Enter cleared the input but never sent a query. Fixed by moving `NewProgram` after all handler wiring so the model copy has all callbacks set.
+
 ## [1.4.0] - 2026-03-18
 
 ### Added
