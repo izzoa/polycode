@@ -11,12 +11,15 @@ const (
 	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"
 	RoleSystem    Role = "system"
+	RoleTool      Role = "tool"
 )
 
 // Message represents a single message in a conversation.
 type Message struct {
-	Role    Role   `json:"role"`
-	Content string `json:"content"`
+	Role       Role       `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`  // set on assistant messages requesting tools
+	ToolCallID string     `json:"tool_call_id,omitempty"` // set on tool result messages (Role = RoleTool)
 }
 
 // StreamChunk represents a single chunk of a streaming response.
@@ -25,6 +28,9 @@ type StreamChunk struct {
 	Delta string
 	// Done indicates this is the final chunk.
 	Done bool
+	// Status indicates this chunk is a progress/status message (not model output).
+	// Status chunks should be displayed but not persisted to conversation history.
+	Status bool
 	// ToolCalls contains any tool calls emitted in the final chunk.
 	// Only populated when Done is true and the model requested tool use.
 	ToolCalls []ToolCall

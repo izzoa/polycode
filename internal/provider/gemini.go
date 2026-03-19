@@ -118,7 +118,7 @@ func (p *GeminiProvider) Query(ctx context.Context, messages []Message, opts Que
 		switch m.Role {
 		case RoleAssistant:
 			role = "model"
-		case RoleSystem:
+		case RoleSystem, RoleTool:
 			role = "user"
 		}
 		contents = append(contents, geminiContent{

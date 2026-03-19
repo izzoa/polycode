@@ -559,7 +559,6 @@ func startTUI(cfg *config.Config) error {
 						Description: description,
 						ResponseCh:  responseCh,
 					})
-					// Wait for user response (with 5-minute timeout)
 					select {
 					case response := <-responseCh:
 						return response
@@ -573,42 +572,58 @@ func startTUI(cfg *config.Config) error {
 				executor := action.NewExecutor(confirmFunc, 120*time.Second)
 				toolLoop := action.NewToolLoop(executor, primary)
 
-				// Notify TUI that tool execution is starting
-				for _, tc := range pendingToolCalls {
-					program.Send(tui.ToolCallMsg{
-						ToolName:    tc.Name,
-						Description: fmt.Sprintf("Executing %s...", tc.Name),
+				// Build synthesis-context messages for the tool loop:
+				// system prompt + user prompt + consensus response with tool calls
+				toolMsgs := []provider.Message{
+					systemPrompt,
+					{Role: provider.RoleUser, Content: prompt},
+				}
+				// Include the consensus text + tool calls as the assistant turn
+				if fullResponse != "" || len(pendingToolCalls) > 0 {
+					toolMsgs = append(toolMsgs, provider.Message{
+						Role:      provider.RoleAssistant,
+						Content:   fullResponse,
+						ToolCalls: pendingToolCalls,
 					})
 				}
 
-				// Run the tool loop — executes calls, feeds results back to primary
-				currentMsgs := conv.snapshot()
-				toolStream, err := toolLoop.Run(ctx, currentMsgs, pendingToolCalls, opts)
-				if err != nil {
-					program.Send(tui.ConsensusChunkMsg{Error: err})
-				} else {
-					// Stream the tool loop's follow-up response
-					var toolResponse string
-					for chunk := range toolStream {
-						if chunk.Error != nil {
-							program.Send(tui.ConsensusChunkMsg{Error: chunk.Error})
-							break
-						}
-						if chunk.Done {
-							break
-						}
-						toolResponse += chunk.Delta
-						program.Send(tui.ConsensusChunkMsg{Delta: chunk.Delta})
-					}
+				// Separate timeout for tool loop
+				toolCtx, toolCancel := context.WithTimeout(context.Background(), 5*time.Minute)
 
-					// Append the tool loop's final response
-					if toolResponse != "" {
-						fullResponse += "\n" + toolResponse
-						conv.append(provider.Message{
-							Role:    provider.RoleAssistant,
-							Content: toolResponse,
-						})
+				// Stream tool loop output live to TUI
+				toolOut := make(chan provider.StreamChunk, 16)
+				go func() {
+					defer toolCancel()
+					if err := toolLoop.Run(toolCtx, toolMsgs, pendingToolCalls, opts, toolOut); err != nil {
+						toolOut <- provider.StreamChunk{Error: err}
 					}
+					close(toolOut)
+				}()
+
+				var toolResponse string
+				for chunk := range toolOut {
+					if chunk.Error != nil {
+						program.Send(tui.ConsensusChunkMsg{Error: chunk.Error})
+						break
+					}
+					if chunk.Done {
+						break
+					}
+					// Display all chunks, but only persist model text (not status)
+					program.Send(tui.ConsensusChunkMsg{Delta: chunk.Delta})
+					if !chunk.Status {
+						toolResponse += chunk.Delta
+					}
+				}
+				toolCancel()
+
+				// Append the tool loop's final response
+				if toolResponse != "" {
+					fullResponse += "\n" + toolResponse
+					conv.append(provider.Message{
+						Role:    provider.RoleAssistant,
+						Content: toolResponse,
+					})
 				}
 
 				program.Send(tui.ConsensusChunkMsg{Done: true})

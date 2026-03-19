@@ -133,8 +133,13 @@ func (p *AnthropicProvider) Query(ctx context.Context, messages []Message, opts 
 			systemPrompt += m.Content
 			continue
 		}
+		role := string(m.Role)
+		// Anthropic doesn't have a "tool" role — map to "user" with context
+		if m.Role == RoleTool {
+			role = "user"
+		}
 		convMsgs = append(convMsgs, anthropicMsg{
-			Role:    string(m.Role),
+			Role:    role,
 			Content: m.Content,
 		})
 	}

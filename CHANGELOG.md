@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-03-19
+
+### Added
+- **Native tool call protocol**: `provider.Message` now supports `ToolCalls`, `ToolCallID`, and `RoleTool` for correct OpenAI-compatible tool continuation. All provider adapters updated.
+- **Live tool output streaming**: Tool execution results (truncated to 500 chars) display inline as fenced code blocks in the consensus stream. Follow-up model responses stream live instead of buffering.
+- **Status chunks**: `StreamChunk.Status` flag distinguishes progress/tool output from model text — status is displayed but not persisted to conversation history.
+
+### Fixed
+- **Tool execution now works end-to-end**: Fixed conversation threading (tool loop gets synthesis context, not raw chat history), separate 5-minute timeout for tool loop, native tool messages instead of fake user text.
+- **Ghost tool calls filtered**: SSE parser skips empty tool call buffers created when providers index tool calls starting at 1 instead of 0.
+- **Duplicate assistant tool_call messages**: Multi-iteration tool loops no longer double-append the assistant message with tool calls.
+- **`content: null` for tool-call-only messages**: `openaiMsg.Content` is now `*string`, serializing as `null` when empty with tool_calls present (required by OpenAI API).
+- **Fan-out no longer sends tools to individual providers**: Tools are stripped from fan-out queries so providers respond with text analysis instead of empty tool-call-only responses.
+- **Viewport overflow**: Improved height calculations so the input area stays visible.
+- **Empty provider tabs explained**: Providers that respond with tool calls only now show an explanatory message instead of a blank panel.
+
 ## [1.7.0] - 2026-03-19
 
 ### Added

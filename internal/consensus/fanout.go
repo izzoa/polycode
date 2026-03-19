@@ -46,6 +46,12 @@ func FanOut(
 		Usage:     make(map[string]tokens.Usage, len(providers)),
 	}
 
+	// Strip tools from fan-out opts — individual providers should respond
+	// with text analysis, not tool calls. Only the consensus synthesizer
+	// (which runs after fan-out) should execute tools.
+	fanOutOpts := opts
+	fanOutOpts.Tools = nil
+
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
@@ -61,7 +67,7 @@ func FanOut(
 			defer wg.Done()
 
 			id := p.ID()
-			ch, err := p.Query(ctx, messages, opts)
+			ch, err := p.Query(ctx, messages, fanOutOpts)
 			if err != nil {
 				mu.Lock()
 				result.Errors[id] = err

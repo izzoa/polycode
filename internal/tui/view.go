@@ -59,7 +59,10 @@ func (m Model) renderChat() string {
 			chatContent += "\n\n" + errStyle.Render("Error: "+m.lastError)
 		}
 		m.chatView.SetContent(chatContent)
-		m.chatView.GotoBottom()
+		// Only auto-scroll to bottom during active queries (not when user is reading)
+		if m.querying {
+			m.chatView.GotoBottom()
+		}
 		if len(m.history) > 0 || m.querying {
 			sections = append(sections, m.renderChatPanel())
 		}
@@ -415,6 +418,8 @@ func (m Model) renderSingleProviderPanel(panel ProviderPanel) string {
 			content = m.spinner.View() + " Waiting for response..."
 		case StatusIdle:
 			content = m.styles.Dimmed.Render("No response yet")
+		case StatusDone:
+			content = m.styles.Dimmed.Render("Model responded with tool calls only (no text output).\nTool execution is handled by the consensus orchestrator.")
 		case StatusFailed:
 			content = m.styles.StatusUnhealthy.Render("Provider failed")
 		}

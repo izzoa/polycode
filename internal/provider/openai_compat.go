@@ -78,10 +78,7 @@ func (p *OpenAICompatProvider) Validate() error {
 func (p *OpenAICompatProvider) Query(ctx context.Context, messages []Message, opts QueryOpts) (<-chan StreamChunk, error) {
 	var msgs []openaiMsg
 	for _, m := range messages {
-		msgs = append(msgs, openaiMsg{
-			Role:    string(m.Role),
-			Content: m.Content,
-		})
+		msgs = append(msgs, toOpenAIMsg(m))
 	}
 
 	reqBody := openaiRequest{
@@ -105,6 +102,7 @@ func (p *OpenAICompatProvider) Query(ctx context.Context, messages []Message, op
 	if err != nil {
 		return nil, fmt.Errorf("openai-compat: marshal request: %w", err)
 	}
+
 
 	// If the base URL already contains a version path (e.g., /v4, /v2),
 	// append only /chat/completions. Otherwise append /v1/chat/completions.

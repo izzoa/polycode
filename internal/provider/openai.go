@@ -93,8 +93,17 @@ type openaiStreamOpts struct {
 }
 
 type openaiMsg struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string              `json:"role"`
+	Content    *string             `json:"content"`
+	ToolCalls  []openaiToolCallOut `json:"tool_calls,omitempty"`
+	ToolCallID string              `json:"tool_call_id,omitempty"`
+}
+
+// openaiToolCallOut is the serialization format for tool calls in request messages.
+type openaiToolCallOut struct {
+	ID       string             `json:"id"`
+	Type     string             `json:"type"`
+	Function openaiToolCallFunc `json:"function"`
 }
 
 type openaiTool struct {
@@ -141,13 +150,38 @@ type openaiToolCallFunc struct {
 	Arguments string `json:"arguments,omitempty"`
 }
 
+// toOpenAIMsg converts a provider.Message to the OpenAI API message format,
+// including tool call fields when present.
+func toOpenAIMsg(m Message) openaiMsg {
+	msg := openaiMsg{
+		Role:       string(m.Role),
+		ToolCallID: m.ToolCallID,
+	}
+
+	// Content is a *string: set to nil for assistant messages with tool_calls
+	// and no text (OpenAI requires content: null in this case, not "").
+	if m.Content != "" || len(m.ToolCalls) == 0 {
+		content := m.Content
+		msg.Content = &content
+	}
+
+	for _, tc := range m.ToolCalls {
+		msg.ToolCalls = append(msg.ToolCalls, openaiToolCallOut{
+			ID:   tc.ID,
+			Type: "function",
+			Function: openaiToolCallFunc{
+				Name:      tc.Name,
+				Arguments: tc.Arguments,
+			},
+		})
+	}
+	return msg
+}
+
 func (p *OpenAIProvider) Query(ctx context.Context, messages []Message, opts QueryOpts) (<-chan StreamChunk, error) {
 	var msgs []openaiMsg
 	for _, m := range messages {
-		msgs = append(msgs, openaiMsg{
-			Role:    string(m.Role),
-			Content: m.Content,
-		})
+		msgs = append(msgs, toOpenAIMsg(m))
 	}
 
 	reqBody := openaiRequest{
@@ -235,9 +269,18 @@ func readOpenAISSE(ctx context.Context, body io.ReadCloser, ch chan<- StreamChun
 		// OpenAI signals end of stream with [DONE].
 		if data == "[DONE]" {
 			var calls []ToolCall
-			for _, tb := range toolBufs {
+			for i, tb := range toolBufs {
+				// Skip empty/incomplete tool calls (can happen when providers
+				// start indexing at 1, leaving index 0 as an empty buffer)
+				if tb.name == "" {
+					continue
+				}
+				id := tb.id
+				if id == "" {
+					id = fmt.Sprintf("polycode_call_%d", i)
+				}
 				calls = append(calls, ToolCall{
-					ID:        tb.id,
+					ID:        id,
 					Name:      tb.name,
 					Arguments: tb.args.String(),
 				})

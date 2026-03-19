@@ -808,9 +808,10 @@ func (m *Model) resetPanels() {
 }
 
 func (m *Model) updateLayout() {
-	inputHeight := 5 // textarea + border
+	inputHeight := 6 // textarea + border + padding
 	tabBarHeight := 1
-	availableHeight := m.height - inputHeight - tabBarHeight - 2
+	borderPadding := 4 // top/bottom border + padding on chat panel
+	availableHeight := m.height - inputHeight - tabBarHeight - borderPadding
 
 	// Update textarea width
 	m.textarea.SetWidth(m.width - 4)
