@@ -315,6 +315,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.lastError = fmt.Sprintf("%s: %s", msg.ProviderName, msg.Error.Error())
 				} else if msg.Done {
 					m.panels[i].Status = StatusDone
+					if msg.Delta != "" {
+						m.panels[i].Content.WriteString(msg.Delta)
+					}
 				} else {
 					m.panels[i].Status = StatusLoading
 					m.panels[i].Content.WriteString(msg.Delta)
@@ -392,13 +395,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Update viewports (only in chat mode)
 	if m.mode == viewChat {
+		var cmd tea.Cmd
+		m.chatView, cmd = m.chatView.Update(msg)
+		cmds = append(cmds, cmd)
+
 		for i := range m.panels {
-			var cmd tea.Cmd
 			m.panels[i].Viewport, cmd = m.panels[i].Viewport.Update(msg)
 			cmds = append(cmds, cmd)
 		}
 
-		var cmd tea.Cmd
 		m.consensusView, cmd = m.consensusView.Update(msg)
 		cmds = append(cmds, cmd)
 	}
@@ -411,6 +416,37 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
+	case "pgup", "shift+pgup":
+		m.chatView.PageUp()
+		return m, nil
+	case "pgdown", "shift+pgdown":
+		m.chatView.PageDown()
+		return m, nil
+	case "ctrl+u":
+		m.chatView.HalfPageUp()
+		return m, nil
+	case "ctrl+d":
+		m.chatView.HalfPageDown()
+		return m, nil
+	case "home":
+		m.chatView.GotoTop()
+		return m, nil
+	case "end":
+		m.chatView.GotoBottom()
+		return m, nil
+	case "left":
+		// Switch to previous tab
+		if m.activeTab > 0 {
+			m.activeTab--
+		}
+		return m, nil
+	case "right":
+		// Switch to next tab
+		maxTab := len(m.panels) // 0=consensus, 1..N=providers
+		if m.activeTab < maxTab {
+			m.activeTab++
+		}
+		return m, nil
 	case "ctrl+s":
 		if !m.querying {
 			m.mode = viewSettings
@@ -667,46 +703,22 @@ func (m *Model) resetPanels() {
 
 func (m *Model) updateLayout() {
 	inputHeight := 5 // textarea + border
-	statusBarHeight := 1
-	availableHeight := m.height - inputHeight - statusBarHeight - 2
+	tabBarHeight := 1
+	availableHeight := m.height - inputHeight - tabBarHeight - 2
 
 	// Update textarea width
 	m.textarea.SetWidth(m.width - 4)
 
 	panelWidth := m.width - 4
 
-	if m.querying && m.showIndividual {
-		// During a query with individual panels visible: split between
-		// chat history, provider panels, and consensus panel
-		chatHeight := availableHeight / 3
-		panelAreaHeight := availableHeight - chatHeight
-		panelCount := len(m.panels) + 1 // +1 for consensus
-		perPanel := panelAreaHeight / max(panelCount, 1)
-
-		m.chatView.Width = panelWidth
-		m.chatView.Height = max(chatHeight-3, 1)
-
-		for i := range m.panels {
-			m.panels[i].Viewport.Width = panelWidth
-			m.panels[i].Viewport.Height = max(perPanel-3, 1)
-		}
-		m.consensusView.Width = panelWidth
-		m.consensusView.Height = max(perPanel-3, 1)
-	} else if m.querying {
-		// During a query, consensus-only view
-		chatHeight := availableHeight / 2
-		consensusHeight := availableHeight - chatHeight
-
-		m.chatView.Width = panelWidth
-		m.chatView.Height = max(chatHeight-3, 1)
-		m.consensusView.Width = panelWidth
-		m.consensusView.Height = max(consensusHeight-3, 1)
-	} else {
-		// Idle: chat log takes all the space
-		m.chatView.Width = panelWidth
-		m.chatView.Height = max(availableHeight-3, 1)
-		m.consensusView.Width = panelWidth
-		m.consensusView.Height = max(availableHeight/2-3, 1)
+	// All views get full width; the active tab gets all the height
+	m.chatView.Width = panelWidth
+	m.chatView.Height = max(availableHeight-3, 1)
+	m.consensusView.Width = panelWidth
+	m.consensusView.Height = max(availableHeight-3, 1)
+	for i := range m.panels {
+		m.panels[i].Viewport.Width = panelWidth
+		m.panels[i].Viewport.Height = max(availableHeight-3, 1)
 	}
 }
 

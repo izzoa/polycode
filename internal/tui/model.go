@@ -145,6 +145,7 @@ type Model struct {
 
 	// State
 	showIndividual bool
+	activeTab      int // 0 = consensus, 1..N = provider panels
 	querying       bool
 	spinner        spinner.Model
 

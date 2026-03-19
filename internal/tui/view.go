@@ -38,43 +38,44 @@ func (m Model) View() string {
 func (m Model) renderChat() string {
 	var sections []string
 
-	// Status bar (always visible)
-	sections = append(sections, m.renderStatusBar())
+	// Tab bar — combines app title, mode, provider tabs, and query status
+	sections = append(sections, m.renderTabBar())
 
-	// Main chat conversation log (always visible)
-	chatContent := m.buildChatLog()
-	if m.querying {
-		if m.consensusContent.Len() > 0 {
-			// Show streaming consensus inline in the chat during query
-			chatContent += m.consensusContent.String()
-		} else {
-			// Show thinking indicator before any response arrives
-			chatContent += "\n" + m.spinner.View() + " Thinking..."
+	// Main content area — depends on active tab
+	if m.activeTab == 0 {
+		// Consensus tab: chat log + streaming consensus
+		chatContent := m.buildChatLog()
+		if m.querying {
+			if m.consensusContent.Len() > 0 {
+				chatContent += m.consensusContent.String()
+			} else {
+				chatContent += "\n" + m.spinner.View() + " Thinking..."
+			}
 		}
-	}
-
-	// Show last error prominently below chat content
-	if m.lastError != "" && !m.querying {
-		errStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196")).
-			Bold(true)
-		chatContent += "\n\n" + errStyle.Render("Error: "+m.lastError)
-	}
-	m.chatView.SetContent(chatContent)
-	if len(m.history) > 0 || m.querying {
-		sections = append(sections, m.renderChatPanel())
+		if m.lastError != "" && !m.querying {
+			errStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("196")).
+				Bold(true)
+			chatContent += "\n\n" + errStyle.Render("Error: "+m.lastError)
+		}
+		m.chatView.SetContent(chatContent)
+		m.chatView.GotoBottom()
+		if len(m.history) > 0 || m.querying {
+			sections = append(sections, m.renderChatPanel())
+		}
+	} else if m.activeTab-1 < len(m.panels) {
+		// Provider tab: show that provider's full response
+		panel := m.panels[m.activeTab-1]
+		sections = append(sections, m.renderSingleProviderPanel(panel))
 	}
 
 	// Worker progress (during /plan execution)
 	if m.planRunning && len(m.agentStages) > 0 {
 		sections = append(sections, m.renderWorkerProgress())
-	} else if m.querying && m.showIndividual && m.hasContent() {
-		// Provider panels (only during active query, toggled with Tab)
-		sections = append(sections, m.renderProviderPanels())
 	}
 
 	// Provenance panel (toggled with 'p')
-	if m.showProvenance && !m.querying {
+	if m.showProvenance && !m.querying && m.activeTab == 0 {
 		sections = append(sections, m.renderProvenance())
 	}
 
@@ -101,7 +102,14 @@ func (m Model) renderChat() string {
 		sections = append(sections, m.renderInput())
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+	output := lipgloss.JoinVertical(lipgloss.Left, sections...)
+
+	// Constrain output to terminal height to prevent overflow
+	if m.height > 0 {
+		output = lipgloss.NewStyle().MaxHeight(m.height).Render(output)
+	}
+
+	return output
 }
 
 // renderConfirmPrompt renders the action confirmation prompt.
@@ -237,10 +245,13 @@ func (m Model) renderHelp() string {
 		{"/memory", "View repo memory"},
 		{"/help", "Toggle this help overlay"},
 		{"/exit", "Quit polycode"},
-		{"Tab", "Toggle individual provider panels"},
+		{"Tab", "Accept slash completion / toggle provider panels"},
 		{"p", "Toggle consensus provenance panel"},
 		{"Enter", "Submit prompt / advance wizard step"},
 		{"?", "Toggle this help overlay"},
+		{"PgUp / PgDn", "Scroll chat history"},
+		{"Ctrl+U / Ctrl+D", "Half-page scroll"},
+		{"Home / End", "Jump to top / bottom of chat"},
 		{"", ""},
 		{"", "Settings Screen"},
 		{"j / Down", "Move cursor down"},
@@ -284,112 +295,104 @@ func (m Model) renderHelp() string {
 		Render(content)
 }
 
-func (m Model) renderStatusBar() string {
-	var parts []string
-	parts = append(parts, m.styles.Title.Render("polycode"))
-	if m.currentMode != "" {
-		modeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
-		parts = append(parts, m.styles.Dimmed.Render(" ["))
-		parts = append(parts, modeStyle.Render(m.currentMode))
-		parts = append(parts, m.styles.Dimmed.Render("]"))
-	}
-	parts = append(parts, m.styles.Dimmed.Render(" | "))
-
-	for i, panel := range m.panels {
-		var indicator string
-		switch panel.Status {
-		case StatusIdle:
-			indicator = m.styles.Dimmed.Render("○")
-		case StatusLoading:
-			indicator = m.spinner.View()
-		case StatusDone:
-			indicator = m.styles.StatusHealthy.Render("●")
-		case StatusFailed:
-			indicator = m.styles.StatusUnhealthy.Render("✕")
-		case StatusTimedOut:
-			indicator = m.styles.StatusUnhealthy.Render("⏱")
-		}
-
-		name := panel.Name
-		if panel.IsPrimary {
-			name = m.styles.StatusPrimary.Render(name + "★")
-		}
-
-		// Token usage display
-		usageStr := ""
-		if td, ok := m.tokenUsage[panel.Name]; ok && td.HasData {
-			if td.Limit != "" {
-				usageStr = fmt.Sprintf(" %s/%s", td.Used, td.Limit)
-			} else {
-				usageStr = fmt.Sprintf(" %s", td.Used)
-			}
-			// Color code based on percentage
-			switch {
-			case td.Percent >= 95:
-				usageStr = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(usageStr) // red
-			case td.Percent >= 80:
-				usageStr = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(usageStr) // amber
-			default:
-				usageStr = m.styles.Dimmed.Render(usageStr)
-			}
-		}
-
-		parts = append(parts, fmt.Sprintf("%s %s%s", indicator, name, usageStr))
-		if i < len(m.panels)-1 {
-			parts = append(parts, m.styles.Dimmed.Render("  "))
-		}
-	}
-
-	if m.querying {
-		parts = append(parts, m.styles.Dimmed.Render("  │  "))
-		if m.consensusActive {
-			parts = append(parts, m.spinner.View()+" synthesizing...")
-		} else {
-			parts = append(parts, m.spinner.View()+" querying providers...")
-		}
-	}
-
-	bar := strings.Join(parts, "")
-	return m.styles.StatusBar.Width(m.width).Render(bar)
-}
 
 func (m Model) renderChatPanel() string {
 	style := m.styles.ConsensusBorder.Width(m.width - 4)
 	return style.Render(m.chatView.View())
 }
 
-func (m Model) renderProviderPanels() string {
-	var panels []string
+// renderTabBar renders the combined status + tab bar.
+func (m Model) renderTabBar() string {
+	activeStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("86")).
+		Background(lipgloss.Color("236")).
+		Padding(0, 1)
+	inactiveStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("250")).
+		Background(lipgloss.Color("235")).
+		Padding(0, 1)
 
-	for _, panel := range m.panels {
-		statusIcon := ""
-		switch panel.Status {
-		case StatusLoading:
-			statusIcon = m.spinner.View() + " "
-		case StatusDone:
-			statusIcon = m.styles.StatusHealthy.Render("✓ ")
-		case StatusFailed:
-			statusIcon = m.styles.StatusUnhealthy.Render("✕ ")
-		case StatusTimedOut:
-			statusIcon = m.styles.StatusUnhealthy.Render("⏱ ")
-		}
-
-		title := fmt.Sprintf("%s%s", statusIcon, panel.Name)
-		if panel.IsPrimary {
-			title += m.styles.StatusPrimary.Render(" ★")
-		}
-
-		content := panel.Viewport.View()
-		if content == "" && panel.Status == StatusLoading {
-			content = m.styles.Dimmed.Render("waiting for response...")
-		}
-
-		style := m.styles.PanelBorder.Width(m.width - 4)
-		rendered := style.Render(fmt.Sprintf("%s\n%s", title, content))
-		panels = append(panels, rendered)
+	// App title + mode
+	var header []string
+	header = append(header, m.styles.Title.Render("polycode"))
+	if m.currentMode != "" {
+		modeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
+		header = append(header, m.styles.Dimmed.Render("["))
+		header = append(header, modeStyle.Render(m.currentMode))
+		header = append(header, m.styles.Dimmed.Render("] "))
+	} else {
+		header = append(header, " ")
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, panels...)
+	// Consensus tab
+	consensusLabel := "Consensus"
+	if m.querying {
+		if m.consensusActive {
+			consensusLabel = m.spinner.View() + " Synthesizing"
+		} else {
+			consensusLabel = m.spinner.View() + " Querying"
+		}
+	}
+	if m.activeTab == 0 {
+		header = append(header, activeStyle.Render(consensusLabel))
+	} else {
+		header = append(header, inactiveStyle.Render(consensusLabel))
+	}
+
+	// Provider tabs with status + token usage
+	for i, panel := range m.panels {
+		var icon string
+		switch panel.Status {
+		case StatusIdle:
+			icon = "○"
+		case StatusLoading:
+			icon = m.spinner.View()
+		case StatusDone:
+			icon = "✓"
+		case StatusFailed:
+			icon = "✕"
+		case StatusTimedOut:
+			icon = "⏱"
+		}
+
+		label := icon + " " + panel.Name
+		if panel.IsPrimary {
+			label += "★"
+		}
+
+		// Compact token usage
+		if td, ok := m.tokenUsage[panel.Name]; ok && td.HasData {
+			label += " " + td.Used
+		}
+
+		if m.activeTab == i+1 {
+			header = append(header, activeStyle.Render(label))
+		} else {
+			header = append(header, inactiveStyle.Render(label))
+		}
+	}
+
+	bar := strings.Join(header, "")
+	return m.styles.StatusBar.Width(m.width).Render(bar)
+}
+
+// renderSingleProviderPanel renders one provider's response as a full panel.
+func (m Model) renderSingleProviderPanel(panel ProviderPanel) string {
+	content := panel.Viewport.View()
+	if content == "" {
+		switch panel.Status {
+		case StatusLoading:
+			content = m.spinner.View() + " Waiting for response..."
+		case StatusIdle:
+			content = m.styles.Dimmed.Render("No response yet")
+		case StatusFailed:
+			content = m.styles.StatusUnhealthy.Render("Provider failed")
+		}
+	}
+
+	style := m.styles.ConsensusBorder.Width(m.width - 4)
+	return style.Render(content)
 }
 
 func (m Model) renderInput() string {

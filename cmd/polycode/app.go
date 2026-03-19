@@ -640,7 +640,7 @@ func startTUI(cfg *config.Config) error {
 
 	// Create the Bubble Tea program AFTER all handlers are wired,
 	// so the model copy Bubble Tea receives has all callbacks set.
-	program = tea.NewProgram(model, tea.WithAltScreen())
+	program = tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	// Run the TUI
 	if _, err := program.Run(); err != nil {

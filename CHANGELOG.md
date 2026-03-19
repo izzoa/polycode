@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-03-19
+
+### Added
+- **Tabbed TUI interface**: Each provider gets its own tab. The Consensus tab (default) shows the synthesized response, while provider tabs show individual responses. Navigate with ←/→ arrow keys.
+- **Unified tab bar**: App title, mode, provider status icons, and token usage are all shown in a single tab bar — replaces the separate status bar.
+- **Scrollable chat viewport**: PgUp/PgDn, Ctrl+U/Ctrl+D, Home/End for keyboard scrolling. Mouse scroll wheel enabled via `WithMouseCellMotion`.
+- **Output height constrained**: Chat view no longer overflows the terminal height.
+
+### Fixed
+- **Provider tab content now populated**: `ProviderChunkMsg` with `Done: true` was discarding the `Delta` content. Individual provider responses now appear in their tabs.
+
 ## [1.5.3] - 2026-03-18
 
 ### Added
