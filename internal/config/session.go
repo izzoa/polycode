@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -44,9 +46,17 @@ type Session struct {
 	UpdatedAt time.Time         `json:"updated_at"`
 }
 
-// SessionPath returns the path to the session file.
+// SessionPath returns the path to the session file, scoped to the current
+// working directory so each project gets its own conversation history.
 func SessionPath() string {
-	return filepath.Join(ConfigDir(), "session.json")
+	wd, err := os.Getwd()
+	if err != nil {
+		// Fallback to a global session if we can't determine the working dir
+		return filepath.Join(ConfigDir(), "sessions", "global.json")
+	}
+	hash := sha256.Sum256([]byte(wd))
+	name := hex.EncodeToString(hash[:8]) // 16-char hex = enough uniqueness
+	return filepath.Join(ConfigDir(), "sessions", name+".json")
 }
 
 // LoadSession reads a saved session from disk.
@@ -72,9 +82,10 @@ func LoadSession() (*Session, error) {
 func SaveSession(s *Session) error {
 	s.UpdatedAt = time.Now()
 
-	dir := ConfigDir()
+	sessionFile := SessionPath()
+	dir := filepath.Dir(sessionFile)
 	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("creating config dir: %w", err)
+		return fmt.Errorf("creating session dir: %w", err)
 	}
 
 	data, err := json.MarshalIndent(s, "", "  ")
@@ -82,7 +93,7 @@ func SaveSession(s *Session) error {
 		return fmt.Errorf("marshaling session: %w", err)
 	}
 
-	return os.WriteFile(SessionPath(), data, 0600)
+	return os.WriteFile(sessionFile, data, 0600)
 }
 
 // ClearSession removes the saved session file.

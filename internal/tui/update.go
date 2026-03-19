@@ -211,10 +211,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Help overlay toggle — available from any view
+		// Help overlay toggle — only when textarea is empty (so ? can be typed)
 		if msg.String() == "?" && m.mode != viewAddProvider && m.mode != viewEditProvider {
-			m.showHelp = !m.showHelp
-			return m, nil
+			if m.mode != viewChat || strings.TrimSpace(m.textarea.Value()) == "" {
+				m.showHelp = !m.showHelp
+				return m, nil
+			}
 		}
 		if m.showHelp {
 			if msg.String() == "esc" || msg.String() == "?" {
@@ -434,13 +436,13 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "end":
 		m.chatView.GotoBottom()
 		return m, nil
-	case "left":
+	case "shift+left":
 		// Switch to previous tab
 		if m.activeTab > 0 {
 			m.activeTab--
 		}
 		return m, nil
-	case "right":
+	case "shift+right":
 		// Switch to next tab
 		maxTab := len(m.panels) // 0=consensus, 1..N=providers
 		if m.activeTab < maxTab {
@@ -469,7 +471,7 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.showIndividual = !m.showIndividual
 		return m, nil
 	case "p":
-		if !m.querying {
+		if !m.querying && strings.TrimSpace(m.textarea.Value()) == "" {
 			m.showProvenance = !m.showProvenance
 			return m, nil
 		}

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-03-19
+
+### Fixed
+- **Typing `p`, `?`, and arrow keys in input no longer triggers shortcuts**: Single-character shortcuts (`p` for provenance, `?` for help) now only fire when the textarea is empty. Left/right arrow keys move the cursor; use **Shift+←/→** to switch tabs.
+
+### Added
+- **Per-directory session scoping**: Chat sessions are now stored per working directory. Starting polycode in different project folders resumes separate conversations. Sessions live in `~/.config/polycode/sessions/<hash>.json`.
+
 ## [1.6.0] - 2026-03-19
 
 ### Added
