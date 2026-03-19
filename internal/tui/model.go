@@ -145,8 +145,12 @@ type Model struct {
 
 	// State
 	showIndividual bool
-	activeTab      int  // 0 = consensus, 1..N = provider panels
-	tabBarFocused  bool // true when tab bar has focus (arrow keys switch tabs)
+	activeTab       int  // -1 = mode selector, 0 = consensus, 1..N = provider panels
+	tabBarFocused   bool // true when tab bar has focus (arrow keys switch tabs)
+	yoloMode        bool // auto-approve all tool actions
+	modePickerOpen  bool // true when mode selection overlay is visible
+	modePickerIdx   int  // cursor position in the mode picker
+	modePickerItems []string
 	querying       bool
 	spinner        spinner.Model
 
@@ -199,6 +203,7 @@ type Model struct {
 	onMemory        func(args string)
 	onSave          func()
 	onExport        func(path string)
+	onYoloToggle    func(enabled bool)
 	onConfigChanged func(*config.Config)
 	onTestProvider  func(providerName string)
 
@@ -309,10 +314,11 @@ func NewModel(providerNames []string, primaryName string, version string) Model 
 		wizardInput:    ti,
 		slashCommands: []string{
 			"/clear", "/exit", "/export", "/help",
-			"/memory", "/mode ", "/plan ", "/quit",
-			"/save", "/settings",
+			"/memory", "/mode", "/plan ", "/quit",
+			"/save", "/settings", "/yolo",
 		},
-		slashCompIdx: -1,
+		slashCompIdx:    -1,
+		modePickerItems: []string{"quick", "balanced", "thorough"},
 	}
 }
 
@@ -340,6 +346,11 @@ func (m *Model) SetPlanHandler(handler func(request string)) {
 // SetModeChangeHandler sets the callback for /mode command.
 func (m *Model) SetModeChangeHandler(handler func(mode string)) {
 	m.onModeChange = handler
+}
+
+// SetYoloToggleHandler sets the callback for /yolo toggle.
+func (m *Model) SetYoloToggleHandler(handler func(enabled bool)) {
+	m.onYoloToggle = handler
 }
 
 // SetMemoryHandler sets the callback for /memory command.

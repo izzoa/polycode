@@ -42,8 +42,8 @@ func (m Model) renderChat() string {
 	sections = append(sections, m.renderTabBar())
 
 	// Main content area — depends on active tab
-	if m.activeTab == 0 {
-		// Consensus tab: chat log + streaming consensus
+	if m.activeTab <= 0 {
+		// Consensus tab (or mode selector — show consensus content)
 		chatContent := m.buildChatLog()
 		if m.querying {
 			if m.consensusContent.Len() > 0 {
@@ -63,7 +63,7 @@ func (m Model) renderChat() string {
 		if len(m.history) > 0 || m.querying {
 			sections = append(sections, m.renderChatPanel())
 		}
-	} else if m.activeTab-1 < len(m.panels) {
+	} else if m.activeTab > 0 && m.activeTab-1 < len(m.panels) {
 		// Provider tab: show that provider's full response
 		panel := m.panels[m.activeTab-1]
 		sections = append(sections, m.renderSingleProviderPanel(panel))
@@ -94,11 +94,16 @@ func (m Model) renderChat() string {
 		sections = append(sections, "  "+strings.Join(hints, hintStyle.Render("  ")))
 	}
 
+	// Mode picker overlay
+	if m.modePickerOpen {
+		sections = append(sections, m.renderModePicker())
+	}
+
 	// Confirmation prompt (overlays input area when pending)
 	if m.confirmPending {
 		sections = append(sections, m.renderConfirmPrompt())
-	} else {
-		// Input area (always visible when not confirming)
+	} else if !m.modePickerOpen {
+		// Input area (always visible when not confirming or picking mode)
 		sections = append(sections, m.renderInput())
 	}
 
@@ -241,7 +246,8 @@ func (m Model) renderHelp() string {
 		{"/save", "Save session to disk"},
 		{"/export [path]", "Export session as shareable artifact"},
 		{"/plan <request>", "Run multi-model agent team pipeline"},
-		{"/mode <name>", "Switch mode: quick, balanced, thorough"},
+		{"/mode <name>", "Switch mode: quick, balanced, thorough, yolo"},
+		{"/yolo", "Toggle yolo mode (auto-approve all tool actions)"},
 		{"/memory", "View repo memory"},
 		{"/help", "Toggle this help overlay"},
 		{"/exit", "Quit polycode"},
@@ -331,10 +337,19 @@ func (m Model) renderTabBar() string {
 		header = append(header, m.styles.Title.Render("polycode"))
 	}
 	if m.currentMode != "" {
-		modeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
-		header = append(header, m.styles.Dimmed.Render("["))
-		header = append(header, modeStyle.Render(m.currentMode))
-		header = append(header, m.styles.Dimmed.Render("] "))
+		modeLabel := m.currentMode
+		if m.yoloMode {
+			modeLabel += "|yolo"
+		}
+		if m.tabBarFocused && m.activeTab == -1 {
+			// Mode selector is highlighted
+			header = append(header, activeStyle.Render(modeLabel))
+		} else {
+			modeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
+			header = append(header, m.styles.Dimmed.Render("["))
+			header = append(header, modeStyle.Render(modeLabel))
+			header = append(header, m.styles.Dimmed.Render("] "))
+		}
 	} else {
 		header = append(header, " ")
 	}
@@ -407,6 +422,66 @@ func (m Model) renderSingleProviderPanel(panel ProviderPanel) string {
 
 	style := m.styles.ConsensusBorder.Width(m.width - 4)
 	return style.Render(content)
+}
+
+func (m Model) renderModePicker() string {
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("86"))
+	selectedStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("82")).Background(lipgloss.Color("236"))
+	normalStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+	yoloOnStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214"))
+
+	var lines []string
+	lines = append(lines, titleStyle.Render("Select Mode"))
+	lines = append(lines, "")
+
+	descriptions := map[string]string{
+		"quick":    "Single best provider, no consensus",
+		"balanced": "All providers + consensus synthesis",
+		"thorough": "Extended context, deeper analysis",
+	}
+
+	// Mode items (0..2) + yolo toggle (3)
+	totalItems := len(m.modePickerItems) + 1 // +1 for yolo toggle
+
+	for i, item := range m.modePickerItems {
+		cursor := "  "
+		style := normalStyle
+		if i == m.modePickerIdx {
+			cursor = "▸ "
+			style = selectedStyle
+		}
+		current := ""
+		if item == m.currentMode {
+			current = " (current)"
+		}
+		line := cursor + style.Render(item+current)
+		if desc, ok := descriptions[item]; ok {
+			line += "  " + hintStyle.Render(desc)
+		}
+		lines = append(lines, line)
+	}
+
+	// Yolo toggle as last item
+	lines = append(lines, "")
+	yoloIdx := totalItems - 1
+	cursor := "  "
+	style := normalStyle
+	if m.modePickerIdx == yoloIdx {
+		cursor = "▸ "
+		style = selectedStyle
+	}
+	checkbox := "[ ]"
+	if m.yoloMode {
+		checkbox = yoloOnStyle.Render("[✓]")
+	}
+	lines = append(lines, cursor+checkbox+" "+style.Render("yolo")+"  "+hintStyle.Render("Auto-approve all tool actions"))
+
+	lines = append(lines, "")
+	lines = append(lines, hintStyle.Render("  ↑/↓ navigate  Enter select  Esc cancel"))
+
+	border := m.styles.InputBorder.Width(m.width - 4)
+	return border.Render(strings.Join(lines, "\n"))
 }
 
 func (m Model) renderInput() string {

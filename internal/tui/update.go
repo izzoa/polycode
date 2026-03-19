@@ -228,6 +228,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Mode picker overlay intercepts all keys when open
+		if m.modePickerOpen {
+			yoloIdx := len(m.modePickerItems) // yolo is the last item
+			maxIdx := yoloIdx
+			switch msg.String() {
+			case "up", "k":
+				if m.modePickerIdx > 0 {
+					m.modePickerIdx--
+				}
+			case "down", "j":
+				if m.modePickerIdx < maxIdx {
+					m.modePickerIdx++
+				}
+			case "enter":
+				if m.modePickerIdx == yoloIdx {
+					// Toggle yolo
+					m.yoloMode = !m.yoloMode
+					if m.onYoloToggle != nil {
+						m.onYoloToggle(m.yoloMode)
+					}
+				} else {
+					// Select mode
+					m.currentMode = m.modePickerItems[m.modePickerIdx]
+					if m.onModeChange != nil {
+						m.onModeChange(m.currentMode)
+					}
+					m.modePickerOpen = false
+					m.textarea.Focus()
+				}
+			case "esc", "ctrl+c":
+				m.modePickerOpen = false
+				m.textarea.Focus()
+			}
+			return m, nil
+		}
+
 		// Route key events by mode
 		switch m.mode {
 		case viewSettings:
@@ -447,12 +483,15 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 		// Return focus to textarea from tab bar
 		if m.tabBarFocused {
 			m.tabBarFocused = false
+			if m.activeTab < 0 {
+				m.activeTab = 0
+			}
 			m.textarea.Focus()
 			return m, nil
 		}
 	case "left":
-		// Switch tabs when tab bar is focused
-		if m.tabBarFocused && m.activeTab > 0 {
+		// Switch tabs when tab bar is focused (-1 = mode selector)
+		if m.tabBarFocused && m.activeTab > -1 {
 			m.activeTab--
 			return m, nil
 		}
@@ -469,6 +508,9 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 		// Return focus to textarea from tab bar
 		if m.tabBarFocused {
 			m.tabBarFocused = false
+			if m.activeTab < 0 {
+				m.activeTab = 0
+			}
 			m.textarea.Focus()
 			return m, nil
 		}
@@ -499,8 +541,20 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 	case "enter":
-		// Return focus to textarea from tab bar
+		// Tab bar focused: Enter on mode selector opens picker, otherwise returns to textarea
 		if m.tabBarFocused {
+			if m.activeTab == -1 {
+				// Open mode picker
+				m.modePickerOpen = true
+				m.tabBarFocused = false
+				for i, item := range m.modePickerItems {
+					if item == m.currentMode {
+						m.modePickerIdx = i
+						break
+					}
+				}
+				return m, nil
+			}
 			m.tabBarFocused = false
 			m.textarea.Focus()
 			return m, nil
@@ -515,6 +569,19 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 					m.settingsCursor = 0
 					m.confirmDelete = false
 					m.settingsMsg = ""
+					return m, nil
+				}
+				if prompt == "/mode" {
+					// No args — open mode picker
+					m.textarea.Reset()
+					m.modePickerOpen = true
+					// Pre-select current mode
+					for i, item := range m.modePickerItems {
+						if item == m.currentMode {
+							m.modePickerIdx = i
+							break
+						}
+					}
 					return m, nil
 				}
 				if strings.HasPrefix(prompt, "/mode ") {
@@ -568,6 +635,14 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 				}
 				if prompt == "/exit" || prompt == "/quit" {
 					return m, tea.Quit
+				}
+				if prompt == "/yolo" {
+					m.textarea.Reset()
+					m.yoloMode = !m.yoloMode
+					if m.onYoloToggle != nil {
+						m.onYoloToggle(m.yoloMode)
+					}
+					return m, nil
 				}
 				if prompt == "/save" {
 					m.textarea.Reset()

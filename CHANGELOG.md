@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-03-19
+
+### Added
+- **Yolo mode as a toggle**: `/yolo` toggles auto-approve independently of the consensus mode. Tab bar shows `[balanced|yolo]` when both are active. Also accessible from the mode picker dropdown.
+- **Mode picker dropdown**: Navigate to the mode badge in the tab bar (↑ then ← to highlight `[balanced]`, Enter to open). Shows quick/balanced/thorough with descriptions plus a yolo checkbox toggle.
+- **Mode badge selectable in tab bar**: The mode indicator is now a navigable position (activeTab = -1) in the tab bar — press Enter to open the mode picker.
+
 ## [1.6.2] - 2026-03-19
 
 ### Added

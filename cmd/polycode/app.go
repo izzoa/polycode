@@ -387,6 +387,12 @@ func startTUI(cfg *config.Config) error {
 		}()
 	})
 
+	// Track yolo mode for auto-approve
+	yoloEnabled := false
+	model.SetYoloToggleHandler(func(enabled bool) {
+		yoloEnabled = enabled
+	})
+
 	// Set up clear handler to reset conversation state and delete saved session
 	model.SetClearHandler(func() {
 		conv.mu.Lock()
@@ -539,7 +545,15 @@ func startTUI(cfg *config.Config) error {
 			// Execute tool calls if the consensus response included them
 			if len(pendingToolCalls) > 0 {
 				// Build confirmation callback that bridges to TUI
+				// In yolo mode, auto-approve all tool actions
 				confirmFunc := action.ConfirmFunc(func(description string) bool {
+					if yoloEnabled {
+						program.Send(tui.ToolCallMsg{
+							ToolName:    "yolo",
+							Description: "Auto-approved: " + description,
+						})
+						return true
+					}
 					responseCh := make(chan bool, 1)
 					program.Send(tui.ConfirmActionMsg{
 						Description: description,
