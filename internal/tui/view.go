@@ -246,7 +246,8 @@ func (m Model) renderHelp() string {
 		{"/help", "Toggle this help overlay"},
 		{"/exit", "Quit polycode"},
 		{"Tab", "Accept slash completion"},
-		{"Shift+←/→", "Switch provider tabs"},
+		{"↑ (input empty)", "Focus tab bar for ←/→ navigation"},
+		{"↓ / Enter / Esc", "Return focus to input"},
 		{"p", "Toggle provenance (when input empty)"},
 		{"?", "Toggle help (when input empty)"},
 		{"Enter", "Submit prompt"},
@@ -314,9 +315,21 @@ func (m Model) renderTabBar() string {
 		Background(lipgloss.Color("235")).
 		Padding(0, 1)
 
-	// App title + mode
+	// When tab bar is focused, use a brighter active style with underline
+	if m.tabBarFocused {
+		activeStyle = activeStyle.
+			Foreground(lipgloss.Color("82")).
+			Background(lipgloss.Color("238")).
+			Underline(true)
+	}
+
+	// App title + mode + focus indicator
 	var header []string
-	header = append(header, m.styles.Title.Render("polycode"))
+	if m.tabBarFocused {
+		header = append(header, m.styles.Title.Render("▸ polycode"))
+	} else {
+		header = append(header, m.styles.Title.Render("polycode"))
+	}
 	if m.currentMode != "" {
 		modeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
 		header = append(header, m.styles.Dimmed.Render("["))

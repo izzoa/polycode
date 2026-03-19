@@ -436,19 +436,42 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "end":
 		m.chatView.GotoBottom()
 		return m, nil
-	case "shift+left":
-		// Switch to previous tab
-		if m.activeTab > 0 {
+	case "up":
+		// If textarea is empty, focus the tab bar
+		if strings.TrimSpace(m.textarea.Value()) == "" && !m.tabBarFocused {
+			m.tabBarFocused = true
+			m.textarea.Blur()
+			return m, nil
+		}
+	case "down":
+		// Return focus to textarea from tab bar
+		if m.tabBarFocused {
+			m.tabBarFocused = false
+			m.textarea.Focus()
+			return m, nil
+		}
+	case "left":
+		// Switch tabs when tab bar is focused
+		if m.tabBarFocused && m.activeTab > 0 {
 			m.activeTab--
+			return m, nil
 		}
-		return m, nil
-	case "shift+right":
-		// Switch to next tab
-		maxTab := len(m.panels) // 0=consensus, 1..N=providers
-		if m.activeTab < maxTab {
-			m.activeTab++
+	case "right":
+		// Switch tabs when tab bar is focused
+		if m.tabBarFocused {
+			maxTab := len(m.panels)
+			if m.activeTab < maxTab {
+				m.activeTab++
+			}
+			return m, nil
 		}
-		return m, nil
+	case "esc":
+		// Return focus to textarea from tab bar
+		if m.tabBarFocused {
+			m.tabBarFocused = false
+			m.textarea.Focus()
+			return m, nil
+		}
 	case "ctrl+s":
 		if !m.querying {
 			m.mode = viewSettings
@@ -476,6 +499,12 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 	case "enter":
+		// Return focus to textarea from tab bar
+		if m.tabBarFocused {
+			m.tabBarFocused = false
+			m.textarea.Focus()
+			return m, nil
+		}
 		if !m.querying {
 			prompt := strings.TrimSpace(m.textarea.Value())
 			if prompt != "" {

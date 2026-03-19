@@ -145,7 +145,8 @@ type Model struct {
 
 	// State
 	showIndividual bool
-	activeTab      int // 0 = consensus, 1..N = provider panels
+	activeTab      int  // 0 = consensus, 1..N = provider panels
+	tabBarFocused  bool // true when tab bar has focus (arrow keys switch tabs)
 	querying       bool
 	spinner        spinner.Model
 
@@ -263,6 +264,7 @@ func defaultStyles() Styles {
 func NewModel(providerNames []string, primaryName string, version string) Model {
 	ta := textarea.New()
 	ta.Placeholder = "Ask polycode anything... (Enter to send, Shift+Enter for newline)"
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle() // no grey background on active line
 	ta.Focus()
 	ta.CharLimit = 0
 	ta.SetHeight(3)

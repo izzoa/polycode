@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-03-19
+
+### Added
+- **Focusable tab bar navigation**: Press ↑ (when input is empty) to focus the tab bar, then ←/→ to switch tabs. Press ↓, Enter, or Esc to return focus to input. Tab bar shows visual focus indicator (▸ prefix, underlined active tab, blurred textarea).
+
+### Fixed
+- **Arrow keys no longer hijack textarea**: Left/right arrows only switch tabs when the tab bar is focused, not when typing.
+- **Removed grey cursor line highlight** from the textarea input.
+
 ## [1.6.1] - 2026-03-19
 
 ### Fixed
