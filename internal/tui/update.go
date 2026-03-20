@@ -30,7 +30,12 @@ type ConsensusChunkMsg struct {
 }
 
 // QueryStartMsg signals that a query has begun.
-type QueryStartMsg struct{}
+type QueryStartMsg struct {
+	// QueriedProviders lists the provider IDs being queried. If empty,
+	// all panels are set to loading (backward compat). If set, only the
+	// listed providers show as loading — others stay idle.
+	QueriedProviders []string
+}
 
 // QueryDoneMsg signals that the full pipeline (fan-out + consensus) is complete.
 type QueryDoneMsg struct{}
@@ -326,6 +331,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.consensusRaw = ""
 		m.consensusRendered = ""
 		m.lastError = ""
+		m.resetPanels()
+		if len(msg.QueriedProviders) > 0 {
+			m.markPanelsQueried(msg.QueriedProviders)
+		} else {
+			// Backward compat: mark all panels as loading
+			for i := range m.panels {
+				m.panels[i].Status = StatusLoading
+			}
+		}
 		return m, m.spinner.Tick
 
 	case QueryDoneMsg:
@@ -834,13 +848,29 @@ func (m Model) deleteSelectedProvider() (Model, tea.Cmd) {
 
 func (m *Model) resetPanels() {
 	for i := range m.panels {
-		m.panels[i].Status = StatusLoading
+		m.panels[i].Status = StatusIdle
 		m.panels[i].Content.Reset()
 		m.panels[i].Viewport.SetContent("")
 	}
 	m.consensusContent.Reset()
+	m.consensusRendered = ""
 	m.consensusView.SetContent("")
 	m.consensusActive = false
+}
+
+// markPanelsQueried sets the named providers to loading status.
+// Providers not in the list stay idle, making it clear which ones
+// are actually participating in the current query.
+func (m *Model) markPanelsQueried(names []string) {
+	nameSet := make(map[string]bool, len(names))
+	for _, n := range names {
+		nameSet[n] = true
+	}
+	for i := range m.panels {
+		if nameSet[m.panels[i].Name] {
+			m.panels[i].Status = StatusLoading
+		}
+	}
 }
 
 func (m *Model) updateLayout() {

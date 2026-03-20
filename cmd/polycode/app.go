@@ -557,8 +557,6 @@ func startTUI(cfg *config.Config) error {
 	// Set up the submit handler that bridges TUI → pipeline
 	model.SetSubmitHandler(func(prompt string) {
 		go func() {
-			program.Send(tui.QueryStartMsg{})
-
 			// Fire pre-query hook
 			hookMgr.Run(hooks.PreQuery, hooks.HookContext{Prompt: prompt})
 
@@ -590,6 +588,14 @@ func startTUI(cfg *config.Config) error {
 			if len(queryProviders) == 0 {
 				queryProviders = healthy
 			}
+
+			// Tell the TUI which providers are being queried
+			var queriedNames []string
+			for _, p := range queryProviders {
+				queriedNames = append(queriedNames, p.ID())
+			}
+			program.Send(tui.QueryStartMsg{QueriedProviders: queriedNames})
+
 			queryPipeline := consensus.NewPipeline(
 				queryProviders,
 				primary,
