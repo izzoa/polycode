@@ -601,6 +601,16 @@ func startTUI(cfg *config.Config) error {
 			// Run the fan-out + consensus pipeline with full history
 			stream, fanOutResult, err := queryPipeline.Run(ctx, messages, opts)
 			if err != nil {
+				// Even on pipeline failure, show individual provider errors
+				// so the user can see what went wrong per provider.
+				if fanOutResult != nil {
+					for id, provErr := range fanOutResult.Errors {
+						program.Send(tui.ProviderChunkMsg{
+							ProviderName: id,
+							Error:        provErr,
+						})
+					}
+				}
 				hookMgr.Run(hooks.OnError, hooks.HookContext{Prompt: prompt, Error: err.Error()})
 				program.Send(tui.ConsensusChunkMsg{Error: err, Done: true})
 				program.Send(tui.QueryDoneMsg{})
