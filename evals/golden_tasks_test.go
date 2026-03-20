@@ -94,7 +94,7 @@ func TestGoldenTask_FileRead(t *testing.T) {
 		},
 	}
 
-	confirm := action.ConfirmFunc(func(desc string) bool { return true })
+	confirm := action.ConfirmFunc(func(toolName, desc string) bool { return true })
 	executor := action.NewExecutor(confirm, 10*time.Second)
 	loop := action.NewToolLoop(executor, prov)
 
@@ -155,7 +155,7 @@ func main() {
 		},
 	}
 
-	confirm := action.ConfirmFunc(func(desc string) bool { return true })
+	confirm := action.ConfirmFunc(func(toolName, desc string) bool { return true })
 	executor := action.NewExecutor(confirm, 10*time.Second)
 	loop := action.NewToolLoop(executor, prov)
 
@@ -197,7 +197,7 @@ func TestGoldenTask_ShellExec(t *testing.T) {
 		},
 	}
 
-	confirm := action.ConfirmFunc(func(desc string) bool { return true })
+	confirm := action.ConfirmFunc(func(toolName, desc string) bool { return true })
 	executor := action.NewExecutor(confirm, 10*time.Second)
 	loop := action.NewToolLoop(executor, prov)
 
@@ -259,7 +259,7 @@ func Add(a, b int) int {
 		},
 	}
 
-	confirm := action.ConfirmFunc(func(desc string) bool { return true })
+	confirm := action.ConfirmFunc(func(toolName, desc string) bool { return true })
 	executor := action.NewExecutor(confirm, 10*time.Second)
 	loop := action.NewToolLoop(executor, prov)
 

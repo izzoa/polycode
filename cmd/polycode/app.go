@@ -180,14 +180,9 @@ func startTUI(cfg *config.Config) error {
 		systemContent += "\n\n" + skillPrompts
 	}
 
-	// Create consensus pipeline with routed providers
-	pipeline := consensus.NewPipeline(
-		routed,
-		primary,
-		cfg.Consensus.Timeout,
-		cfg.Consensus.MinResponses,
-		tracker,
-	)
+	// Note: no static pipeline variable — providers are selected per query
+	// by the router in the submit handler. Mode/config changes update the
+	// router inputs (healthy, primary, cfg) which take effect on the next query.
 
 	// System prompt built from instruction hierarchy + repo memory
 	systemPrompt := provider.Message{
@@ -276,19 +271,8 @@ func startTUI(cfg *config.Config) error {
 			}
 		}
 
-		// Rebuild tracker and pipeline with routing
+		// Rebuild tracker; provider selection happens per query via router
 		tracker = tokens.NewTracker(newProviderModels, newProviderLimits)
-		newRouted := router.SelectProviders(currentMode, newHealthy, newPrimary.ID())
-		if len(newRouted) == 0 {
-			newRouted = newHealthy
-		}
-		pipeline = consensus.NewPipeline(
-			newRouted,
-			newPrimary,
-			newCfg.Consensus.Timeout,
-			newCfg.Consensus.MinResponses,
-			tracker,
-		)
 		registry = newRegistry
 		healthy = newHealthy
 		primary = newPrimary
@@ -471,24 +455,13 @@ func startTUI(cfg *config.Config) error {
 		}()
 	})
 
-	// Wire /mode handler — changes which providers participate in queries
+	// Wire /mode handler — updates the mode; provider selection happens per query
 	model.SetModeChangeHandler(func(mode string) {
 		m, ok := routing.ParseMode(mode)
 		if !ok {
 			return
 		}
 		currentMode = m
-		newRouted := router.SelectProviders(currentMode, healthy, primary.ID())
-		if len(newRouted) == 0 {
-			newRouted = healthy
-		}
-		pipeline = consensus.NewPipeline(
-			newRouted,
-			primary,
-			cfg.Consensus.Timeout,
-			cfg.Consensus.MinResponses,
-			tracker,
-		)
 		program.Send(tui.ModeChangedMsg{Mode: mode})
 	})
 
@@ -612,8 +585,21 @@ func startTUI(cfg *config.Config) error {
 			ctx, cancel := context.WithTimeout(context.Background(), cfg.Consensus.Timeout+30*time.Second)
 			defer cancel()
 
+			// Re-select providers per query (adaptive routing)
+			queryProviders := router.SelectProviders(currentMode, healthy, primary.ID())
+			if len(queryProviders) == 0 {
+				queryProviders = healthy
+			}
+			queryPipeline := consensus.NewPipeline(
+				queryProviders,
+				primary,
+				cfg.Consensus.Timeout,
+				cfg.Consensus.MinResponses,
+				tracker,
+			)
+
 			// Run the fan-out + consensus pipeline with full history
-			stream, fanOutResult, err := pipeline.Run(ctx, messages, opts)
+			stream, fanOutResult, err := queryPipeline.Run(ctx, messages, opts)
 			if err != nil {
 				hookMgr.Run(hooks.OnError, hooks.HookContext{Prompt: prompt, Error: err.Error()})
 				program.Send(tui.ConsensusChunkMsg{Error: err, Done: true})
@@ -626,20 +612,24 @@ func startTUI(cfg *config.Config) error {
 				for id, usage := range fanOutResult.Usage {
 					tracker.Add(id, usage)
 					if tlog != nil {
+						success := true
 						tlog.Log(telemetry.Event{
 							ProviderID:   id,
 							EventType:    telemetry.EventProviderResponse,
 							InputTokens:  usage.InputTokens,
 							OutputTokens: usage.OutputTokens,
+							Success:      &success,
 						})
 					}
 				}
 				for id, provErr := range fanOutResult.Errors {
 					if tlog != nil {
+						fail := false
 						tlog.Log(telemetry.Event{
 							ProviderID: id,
 							EventType:  telemetry.EventProviderResponse,
 							Error:      provErr.Error(),
+							Success:    &fail,
 						})
 					}
 				}
@@ -705,18 +695,9 @@ func startTUI(cfg *config.Config) error {
 			if len(pendingToolCalls) > 0 {
 				// Build confirmation callback that consults permission
 				// policies, then falls back to TUI confirmation or yolo mode.
-				// Also logs user feedback as telemetry for router calibration.
-				confirmFunc := action.ConfirmFunc(func(description string) bool {
-					// Extract tool name from description for policy check.
-					toolName := description
-					for _, tc := range pendingToolCalls {
-						if len(tc.Name) > 0 {
-							toolName = tc.Name
-							break
-						}
-					}
-
-					// Check permission policy
+				// The executor passes the actual tool name for each call.
+				confirmFunc := action.ConfirmFunc(func(toolName, description string) bool {
+					// Check permission policy for this specific tool
 					policy := policyMgr.Check(toolName)
 					switch policy {
 					case permissions.PolicyAllow:
@@ -965,9 +946,13 @@ func fromSessionMessages(msgs []config.SessionMessage) []provider.Message {
 				Arguments: tc.Arguments,
 			})
 		}
-		// Restore tool result ID
+		// Restore tool result ID and content from ToolResult
 		if sm.ToolResult != nil {
 			m.ToolCallID = sm.ToolResult.ToolCallID
+			// Prefer ToolResult.Output if Content is empty (older sessions)
+			if m.Content == "" && sm.ToolResult.Output != "" {
+				m.Content = sm.ToolResult.Output
+			}
 		}
 		out = append(out, m)
 	}

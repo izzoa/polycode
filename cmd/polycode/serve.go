@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -237,14 +238,19 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// isLocalhostOrigin returns true if the origin is a localhost address.
+// isLocalhostOrigin returns true if the origin is from localhost or 127.0.0.1.
+// It parses the URL to check the exact hostname, preventing spoofed origins
+// like "http://localhost.evil.com".
 func isLocalhostOrigin(origin string) bool {
-	return strings.HasPrefix(origin, "http://localhost") ||
-		strings.HasPrefix(origin, "http://127.0.0.1") ||
-		strings.HasPrefix(origin, "https://localhost") ||
-		strings.HasPrefix(origin, "https://127.0.0.1") ||
-		origin == "vscode-webview://" ||
-		strings.HasPrefix(origin, "vscode-webview://")
+	if strings.HasPrefix(origin, "vscode-webview://") {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {

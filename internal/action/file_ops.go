@@ -30,7 +30,7 @@ func (e *Executor) writeFile(path string, content string) ToolResult {
 	}
 	description := fmt.Sprintf("Write to file %s:\n%s", path, preview)
 
-	if !e.confirm(description) {
+	if !e.confirm("file_write", description) {
 		return ToolResult{
 			Output: "file write cancelled by user",
 		}

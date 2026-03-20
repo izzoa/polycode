@@ -218,16 +218,18 @@ func ReviewHasCritical(review string) bool {
 	}
 
 	// Keyword fallback: match "critical" in prose while excluding known
-	// false-positive phrases.
+	// false-positive and negation phrases.
 	if strings.Contains(lower, "critical") {
-		// Filter out common false positives
-		falsePositives := []string{"non-critical", "non critical", "critical path", "critical section", "mission-critical"}
+		falsePositives := []string{
+			"non-critical", "non critical", "critical path", "critical section", "mission-critical",
+			"no critical issues", "no critical findings", "no critical problems",
+			"no critical bugs", "no critical vulnerabilities", "no critical errors",
+			"without critical", "not critical",
+		}
 		cleaned := lower
 		for _, fp := range falsePositives {
 			cleaned = strings.ReplaceAll(cleaned, fp, "")
 		}
-		// If "critical" still appears after removing false-positive phrases,
-		// it's likely a real finding.
 		if strings.Contains(cleaned, "critical") {
 			return true
 		}

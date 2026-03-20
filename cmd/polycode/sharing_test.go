@@ -153,6 +153,31 @@ func TestReviewHasCritical(t *testing.T) {
 			review:   "",
 			expected: false,
 		},
+		{
+			name:     "negation: no critical issues found",
+			review:   "No critical issues found. The code looks clean.",
+			expected: false,
+		},
+		{
+			name:     "negation: without critical problems",
+			review:   "The PR merges without critical problems.",
+			expected: false,
+		},
+		{
+			name:     "critical path false positive",
+			review:   "This is on the critical path for the release.",
+			expected: false,
+		},
+		{
+			name:     "bracketed severity",
+			review:   "[critical] SQL injection in user input handler.",
+			expected: true,
+		},
+		{
+			name:     "structured severity",
+			review:   "Severity: critical - race condition in cache layer.",
+			expected: true,
+		},
 	}
 
 	for _, tt := range tests {

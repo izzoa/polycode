@@ -16,8 +16,9 @@ type ToolResult struct {
 }
 
 // ConfirmFunc is a callback that asks the user to confirm an action.
-// It receives a human-readable description and returns true if the user approves.
-type ConfirmFunc func(description string) bool
+// It receives the tool name (e.g. "file_write", "shell_exec") and a
+// human-readable description, and returns true if the user approves.
+type ConfirmFunc func(toolName, description string) bool
 
 // ExternalToolHandler is a callback for handling tool calls that the built-in
 // executor doesn't recognize (e.g. MCP tools). It receives the tool call and

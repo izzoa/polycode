@@ -83,7 +83,7 @@ func TestToolLoopFileRead(t *testing.T) {
 		},
 	}
 
-	confirm := ConfirmFunc(func(desc string) bool { return true })
+	confirm := ConfirmFunc(func(toolName, desc string) bool { return true })
 	executor := NewExecutor(confirm, 10*time.Second)
 	loop := NewToolLoop(executor, prov)
 
@@ -107,7 +107,7 @@ func TestToolLoopShellExec(t *testing.T) {
 		},
 	}
 
-	confirm := ConfirmFunc(func(desc string) bool { return true })
+	confirm := ConfirmFunc(func(toolName, desc string) bool { return true })
 	executor := NewExecutor(confirm, 10*time.Second)
 	loop := NewToolLoop(executor, prov)
 
@@ -132,7 +132,7 @@ func TestToolLoopRejectedAction(t *testing.T) {
 	}
 
 	// Always reject
-	confirm := ConfirmFunc(func(desc string) bool { return false })
+	confirm := ConfirmFunc(func(toolName, desc string) bool { return false })
 	executor := NewExecutor(confirm, 10*time.Second)
 	loop := NewToolLoop(executor, prov)
 
@@ -164,7 +164,7 @@ func TestToolLoopNativeMessages(t *testing.T) {
 	origQuery := prov.Query
 	_ = origQuery // suppress unused warning in this simple test
 
-	confirm := ConfirmFunc(func(desc string) bool { return true })
+	confirm := ConfirmFunc(func(toolName, desc string) bool { return true })
 	executor := NewExecutor(confirm, 10*time.Second)
 	loop := NewToolLoop(executor, prov)
 

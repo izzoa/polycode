@@ -46,6 +46,16 @@ func TestCORSMiddleware(t *testing.T) {
 	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Errorf("expected no CORS header for non-localhost, got %q", got)
 	}
+
+	// Test that spoofed localhost subdomain is rejected
+	req = httptest.NewRequest(http.MethodGet, "/status", nil)
+	req.Header.Set("Origin", "http://localhost.evil.com")
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("expected no CORS header for localhost.evil.com, got %q", got)
+	}
 }
 
 func TestWriteJSON(t *testing.T) {
