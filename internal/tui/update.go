@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -323,6 +324,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.consensusActive = false
 		m.consensusContent.Reset()
 		m.consensusRaw = ""
+		m.consensusRendered = ""
 		m.lastError = ""
 		return m, m.spinner.Tick
 
@@ -378,19 +380,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Error != nil {
 			m.lastError = msg.Error.Error()
 			m.consensusContent.WriteString("\n[ERROR: " + msg.Error.Error() + "]")
+			m.consensusRendered = m.consensusContent.String()
 		} else if msg.Done {
-			// Stream complete — save raw text for history, then render markdown
-			// so the user sees formatted output immediately.
+			// Stream complete — final render of accumulated content.
 			if m.consensusContent.Len() > 0 {
 				m.consensusRaw = m.consensusContent.String()
-				m.consensusContent.Reset()
-				m.consensusContent.WriteString(renderMarkdown(m.consensusRaw))
+				m.consensusRendered = renderMarkdown(m.consensusRaw)
 			}
 		} else {
 			m.lastError = "" // clear error on first successful content
 			m.consensusContent.WriteString(msg.Delta)
+
+			// Periodically re-render markdown during streaming (~500ms throttle)
+			// so the user sees live-formatted output.
+			now := time.Now()
+			if now.Sub(m.lastRenderTime) > 500*time.Millisecond {
+				m.consensusRendered = renderMarkdown(m.consensusContent.String())
+				m.lastRenderTime = now
+			}
 		}
-		m.consensusView.SetContent(m.consensusContent.String())
+		m.consensusView.SetContent(m.consensusRendered)
 		m.consensusView.GotoBottom()
 		return m, nil
 

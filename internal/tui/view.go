@@ -46,7 +46,10 @@ func (m Model) renderChat() string {
 		// Consensus tab (or mode selector — show consensus content)
 		chatContent := m.buildChatLog()
 		if m.querying {
-			if m.consensusContent.Len() > 0 {
+			if m.consensusRendered != "" {
+				chatContent += m.consensusRendered
+			} else if m.consensusContent.Len() > 0 {
+				// First chunks before initial render throttle fires
 				chatContent += m.consensusContent.String()
 			} else {
 				chatContent += "\n" + m.spinner.View() + " Thinking..."

@@ -98,10 +98,12 @@ type Model struct {
 	providers []string // provider names in order
 
 	// Consensus panel
-	consensusContent *strings.Builder // accumulates streamed text (raw during streaming, rendered after Done)
-	consensusRaw     string           // raw text before markdown rendering (preserved for history)
-	consensusView    viewport.Model
-	consensusActive  bool
+	consensusContent  *strings.Builder // accumulates raw streamed text
+	consensusRaw      string           // raw text preserved for history (set on Done)
+	consensusRendered string           // periodically re-rendered markdown for live display
+	lastRenderTime    time.Time        // throttle: last time we ran glamour on streaming content
+	consensusView     viewport.Model
+	consensusActive   bool
 
 	// Consensus provenance
 	showProvenance      bool
