@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -133,8 +134,10 @@ func TestConsensusChunkMsg_DoneSetsState(t *testing.T) {
 	m, _ = updateModel(t, m, ConsensusChunkMsg{Delta: "final answer"})
 	m, _ = updateModel(t, m, ConsensusChunkMsg{Done: true})
 
-	if m.consensusContent.String() != "final answer" {
-		t.Errorf("consensus content = %q, want %q", m.consensusContent.String(), "final answer")
+	// After Done, content is markdown-rendered (may have leading/trailing whitespace)
+	got := strings.TrimSpace(m.consensusContent.String())
+	if got != "final answer" {
+		t.Errorf("consensus content = %q, want %q", got, "final answer")
 	}
 	if !m.consensusActive {
 		t.Error("consensusActive should be true after Done")

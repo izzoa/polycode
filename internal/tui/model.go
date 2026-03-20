@@ -85,6 +85,7 @@ type Exchange struct {
 	Prompt             string
 	ConsensusResponse  string
 	IndividualResponse map[string]string // provider name → response
+	renderedResponse   string            // cached glamour-rendered markdown (computed once)
 }
 
 // Model is the main Bubble Tea model for the polycode TUI.
@@ -97,7 +98,8 @@ type Model struct {
 	providers []string // provider names in order
 
 	// Consensus panel
-	consensusContent *strings.Builder
+	consensusContent *strings.Builder // accumulates streamed text (raw during streaming, rendered after Done)
+	consensusRaw     string           // raw text before markdown rendering (preserved for history)
 	consensusView    viewport.Model
 	consensusActive  bool
 
@@ -111,6 +113,8 @@ type Model struct {
 	// Conversation state — full multi-turn dialogue
 	history       []Exchange // completed exchanges for display
 	currentPrompt string     // the prompt being processed right now
+	chatLogCache  string     // cached rendered chat log (rebuilt only when history changes)
+	chatLogDirty  bool       // true when history changed and cache needs rebuild
 
 	// Error display — surfaced prominently in the chat area
 	lastError string // cleared on next successful query or /clear
@@ -377,6 +381,7 @@ func (m *Model) SetExportHandler(handler func(path string)) {
 // AppendHistory adds an exchange to the display history (used for session restore).
 func (m *Model) AppendHistory(ex Exchange) {
 	m.history = append(m.history, ex)
+	m.rebuildChatLogCache()
 }
 
 // SetConfigChangeHandler sets the callback invoked when the config changes

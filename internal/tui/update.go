@@ -322,15 +322,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.querying = true
 		m.consensusActive = false
 		m.consensusContent.Reset()
+		m.consensusRaw = ""
 		m.lastError = ""
 		return m, m.spinner.Tick
 
 	case QueryDoneMsg:
 		m.querying = false
-		// Save completed exchange to history
+		// Save completed exchange to history using raw (pre-markdown) text
+		rawResponse := m.consensusRaw
+		if rawResponse == "" {
+			rawResponse = m.consensusContent.String() // fallback if Done never fired
+		}
 		exchange := Exchange{
 			Prompt:             m.currentPrompt,
-			ConsensusResponse:  m.consensusContent.String(),
+			ConsensusResponse:  rawResponse,
 			IndividualResponse: make(map[string]string),
 		}
 		for _, p := range m.panels {
@@ -338,6 +343,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.history = append(m.history, exchange)
 		m.currentPrompt = ""
+		m.rebuildChatLogCache()
 		// Update the chat view with full conversation
 		m.chatView.SetContent(m.buildChatLog())
 		m.chatView.GotoBottom()
@@ -373,9 +379,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastError = msg.Error.Error()
 			m.consensusContent.WriteString("\n[ERROR: " + msg.Error.Error() + "]")
 		} else if msg.Done {
-			// Successful completion — clear any prior error
-			if m.consensusContent.Len() > 0 && m.lastError == "" {
-				// only clear if we actually got content (not just Done after error)
+			// Stream complete — save raw text for history, then render markdown
+			// so the user sees formatted output immediately.
+			if m.consensusContent.Len() > 0 {
+				m.consensusRaw = m.consensusContent.String()
+				m.consensusContent.Reset()
+				m.consensusContent.WriteString(renderMarkdown(m.consensusRaw))
 			}
 		} else {
 			m.lastError = "" // clear error on first successful content
@@ -636,6 +645,7 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 					m.history = nil
 					m.currentPrompt = ""
 					m.lastError = ""
+					m.chatLogCache = ""
 					m.consensusContent.Reset()
 					m.consensusView.SetContent("")
 					m.chatView.SetContent("")
@@ -846,28 +856,36 @@ func (m *Model) updateLayout() {
 	}
 }
 
-// buildChatLog renders the full conversation history as a scrollable text log.
-func (m Model) buildChatLog() string {
+// rebuildChatLogCache re-renders the chat log from history. Call this whenever
+// history changes (pointer receiver so it can mutate the cache).
+func (m *Model) rebuildChatLogCache() {
 	var b strings.Builder
-
-	for _, ex := range m.history {
-		// User prompt (rendered as-is, no markdown)
+	for i := range m.history {
+		ex := &m.history[i]
 		b.WriteString("❯ ")
 		b.WriteString(ex.Prompt)
 		b.WriteString("\n\n")
-		// Consensus response (rendered as markdown with syntax highlighting)
-		b.WriteString(renderMarkdown(ex.ConsensusResponse))
+		// Render markdown once per exchange and cache it
+		if ex.renderedResponse == "" && ex.ConsensusResponse != "" {
+			ex.renderedResponse = renderMarkdown(ex.ConsensusResponse)
+		}
+		b.WriteString(ex.renderedResponse)
 		b.WriteString("\n")
 	}
+	m.chatLogCache = b.String()
+	m.chatLogDirty = false
+}
 
-	// If currently querying, show the in-progress prompt
+// buildChatLog returns the cached chat log plus any in-progress prompt.
+// This is cheap to call from View() since the expensive rendering is cached.
+func (m Model) buildChatLog() string {
+	result := m.chatLogCache
+
 	if m.currentPrompt != "" {
-		b.WriteString("❯ ")
-		b.WriteString(m.currentPrompt)
-		b.WriteString("\n")
+		result += "❯ " + m.currentPrompt + "\n"
 	}
 
-	return b.String()
+	return result
 }
 
 func (m Model) SendProviderChunk(name, delta string, done bool, err error) tea.Cmd {
