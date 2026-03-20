@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-03-20
+
+### Added
+- **Runtime subsystem integration**: Hooks (pre_query, post_query, post_tool, on_error), permission policies, mode-based routing, repo memory, instruction hierarchy, and MCP tools are now wired into the main conversation loop — previously these existed as packages but were not active at runtime.
+- **Skills/plugin system**: Installable extensions that add slash commands, system prompts, and tool definitions. Skills live in `~/.config/polycode/skills/` with YAML manifests. CLI: `polycode skill list|install|remove`. TUI: `/skill` command. Completes Phase 5 of the roadmap.
+- **Adaptive router calibration**: User feedback signals (tool accept/reject) logged as telemetry and factored into provider scoring. Periodic full-consensus calibration in quick mode every 10th query. Providers selected per query instead of statically.
+- **Live markdown rendering**: Streaming output is re-rendered through glamour every 500ms, so users see formatted headers, code blocks, and lists as the response arrives.
+- **Eval framework**: `evals/` directory with 6 golden task tests (file read/write, shell exec, fix-and-test, consensus pipeline, timeout behavior) and 10 seeded review benchmark cases (SQL injection, hardcoded creds, race conditions, etc.).
+- **Test coverage for previously untested packages**: 21 provider tests (SSE parsing, auth headers, tool call accumulation), 18 auth tests (MemStore, fileStore, concurrent access), 23 TUI tests (message handling, state transitions, confirmation flow), 20 skill tests.
+- **Session fidelity**: Tool calls and tool results now round-trip through session save/restore via `toSessionMessages`/`fromSessionMessages`.
+
+### Fixed
+- **CORS origin validation**: Editor bridge now parses the Origin URL and checks exact hostname, preventing spoofed origins like `http://localhost.evil.com`.
+- **Editor bridge binds to loopback**: `polycode serve` defaults to `127.0.0.1` instead of all interfaces.
+- **CI severity detection**: `ReviewHasCritical` uses structured severity markers and negation filtering instead of naive substring matching. "No critical issues found" no longer triggers a false positive.
+- **Permission check per tool**: `ConfirmFunc` now receives the actual tool name for each call, so multi-tool responses get per-tool policy checks instead of inheriting the first tool's policy.
+- **Tool context fix**: Consensus text and tool execution output combined into a single assistant message for coherent multi-turn conversations.
+- **TUI rendering performance**: Chat log cached and rebuilt only on history changes. Markdown rendered once per exchange instead of on every View() frame. Eliminates lag when scrolling through long conversations.
+- **Router telemetry**: Provider responses now logged with `Success` field so the adaptive router scores providers correctly.
+
+### Changed
+- `ConfirmFunc` signature changed from `func(description string) bool` to `func(toolName, description string) bool` for per-tool permission checks.
+- System prompt now built from instruction hierarchy (`.polycode/instructions.md` > `~/.config/polycode/instructions.md` > default) plus repo memory, instead of a hardcoded string.
+- Provider selection happens per query via the adaptive router, not from a static pipeline rebuilt only on mode/config changes.
+
 ## [2.0.0] - 2026-03-19
 
 ### Added

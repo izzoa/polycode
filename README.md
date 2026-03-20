@@ -97,6 +97,62 @@ The consensus output can drive coding actions, just like single-model assistants
 - **OAuth 2.0 device flow** for providers that support it (Claude, Gemini)
 - **No-auth mode** for local models (Ollama, etc.)
 
+### Skills / Plugins
+
+Extend polycode with installable skills that add slash commands, system prompts, and tool definitions:
+
+```bash
+polycode skill install ./my-skill    # install from local directory
+polycode skill list                  # list installed skills
+polycode skill remove my-skill       # uninstall
+```
+
+Skills live in `~/.config/polycode/skills/` with a `skill.yaml` manifest:
+
+```yaml
+name: git-review
+version: "1.0"
+description: Automated git diff review
+command: review          # registers /review slash command
+tools:
+  - name: diff
+    description: Get the current git diff
+    handler: git diff --cached
+```
+
+### Adaptive Routing
+
+Three operating modes control cost/quality trade-offs:
+
+- **`quick`** — primary model only, no consensus (lowest cost)
+- **`balanced`** — primary + best-scoring secondary (default)
+- **`thorough`** — all healthy providers, full consensus
+
+Switch modes with `/mode quick`, `/mode balanced`, or `/mode thorough`. The router uses telemetry (latency, error rate, user feedback) to score providers and selects the best combination per query.
+
+### Hooks, Permissions, and MCP
+
+- **Hooks** — Run shell commands at lifecycle events: `pre_query`, `post_query`, `post_tool`, `on_error`
+- **Permissions** — Per-tool approval policies (`allow`, `ask`, `deny`) scoped by repo or user in `permissions.yaml`
+- **MCP** — Connect to Model Context Protocol servers for external tool discovery and invocation
+- **Repo memory** — Persistent notes in `~/.config/polycode/memory/` injected into the system prompt
+- **Instructions** — Instruction hierarchy: `.polycode/instructions.md` > `~/.config/polycode/instructions.md` > default
+
+### CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `polycode` | Launch interactive TUI |
+| `polycode init` | Setup wizard |
+| `polycode review [--pr N]` | Review code changes via consensus |
+| `polycode ci --pr N` | Headless PR review for CI pipelines |
+| `polycode serve [--port N]` | Editor bridge HTTP server (default 9876) |
+| `polycode export [--format md\|json]` | Export session |
+| `polycode import <file>` | Import session |
+| `polycode skill list\|install\|remove` | Manage skills |
+| `polycode auth login\|logout\|status` | Manage credentials |
+| `polycode config edit\|show\|path` | Manage configuration |
+
 ---
 
 ## Installation
@@ -164,6 +220,10 @@ Or press `Ctrl+S` in the TUI to open settings, then `a`. The more providers you 
 | `/save` | Save session to disk |
 | `/export [path]` | Export session as JSON |
 | `/mode <name>` | Switch mode: quick, balanced, thorough |
+| `/plan <request>` | Run multi-model agent team pipeline |
+| `/memory` | View repo memory |
+| `/skill [list\|install\|remove]` | Manage installed skills/plugins |
+| `/yolo` | Toggle auto-approve for all tool actions |
 | `/exit` | Quit polycode |
 
 ---
@@ -368,44 +428,32 @@ represents the best synthesis.
 ```
 polycode/
 ├── cmd/polycode/           # CLI entry point, app wiring
-│   ├── main.go             # Cobra commands (root, auth, init)
-│   ├── app.go              # TUI startup, pipeline + registry + tracker init
-│   └── setup.go            # Interactive setup wizard
+│   ├── main.go             # Cobra commands (root, auth, skill, init, review, ci, serve)
+│   ├── app.go              # TUI startup, subsystem wiring, conversation loop
+│   ├── setup.go            # Interactive setup wizard
+│   ├── review.go           # polycode review subcommand
+│   ├── ci.go               # polycode ci (headless PR review)
+│   ├── serve.go            # Editor bridge HTTP server
+│   └── sharing.go          # Export/import sessions
+├── evals/                  # Evaluation framework
+│   ├── golden_tasks_test.go    # End-to-end execution pipeline tests
+│   └── review_benchmark_test.go # Seeded review quality benchmarks
 ├── internal/
 │   ├── config/             # YAML config types, loading, validation, saving
 │   ├── provider/           # Provider interface + 4 adapters + registry
-│   │   ├── provider.go     # Interface, Message, StreamChunk, ToolCall types
-│   │   ├── anthropic.go    # Anthropic Messages API (SSE streaming)
-│   │   ├── openai.go       # OpenAI Chat Completions (SSE + tool calls)
-│   │   ├── gemini.go       # Google Gemini (SSE streaming)
-│   │   ├── openai_compat.go# OpenAI-compatible (configurable base URL)
-│   │   └── registry.go     # Provider instantiation + health checking
 │   ├── consensus/          # Fan-out + synthesis pipeline
-│   │   ├── fanout.go       # Concurrent dispatch to all providers
-│   │   ├── consensus.go    # Consensus prompt builder + synthesis
-│   │   ├── pipeline.go     # Full pipeline orchestration
-│   │   └── truncate.go     # Context overflow handling
-│   ├── tokens/             # Token tracking + model metadata
-│   │   ├── tracker.go      # Per-provider usage accumulator
-│   │   ├── limits.go       # Hardcoded model context limits
-│   │   └── metadata.go     # litellm metadata fetcher + cache + store
-│   ├── action/             # Tool execution
-│   │   ├── tools.go        # Tool definitions (file_read, file_write, shell_exec)
-│   │   ├── executor.go     # Tool call dispatcher
-│   │   ├── file_ops.go     # File read/write with confirmation
-│   │   ├── shell.go        # Shell execution with safety checks
-│   │   └── loop.go         # Multi-turn tool-use loop
-│   ├── auth/               # Credential management
-│   │   ├── auth.go         # Store interface + NewStore factory
-│   │   ├── store.go        # Keyring + file-backed implementations
-│   │   └── oauth.go        # OAuth 2.0 device flow
-│   └── tui/                # Bubble Tea terminal UI
-│       ├── model.go        # Model struct, types, Init()
-│       ├── update.go       # Update() message handling
-│       ├── view.go         # View() rendering dispatch
-│       ├── splash.go       # ASCII art startup screen
-│       ├── settings.go     # Provider settings list
-│       └── wizard.go       # Add/edit provider wizard
+│   ├── tokens/             # Token tracking + model metadata (litellm)
+│   ├── action/             # Tool execution (file_read, file_write, shell_exec)
+│   ├── auth/               # Credential management (keyring, file, OAuth)
+│   ├── tui/                # Bubble Tea terminal UI
+│   ├── hooks/              # Lifecycle hooks (pre_query, post_query, etc.)
+│   ├── permissions/        # Per-tool approval policies (allow/ask/deny)
+│   ├── routing/            # Adaptive provider selection by mode + telemetry
+│   ├── memory/             # Repo memory + instruction hierarchy
+│   ├── mcp/                # Model Context Protocol client
+│   ├── skill/              # Skills/plugin system (manifest, registry, execution)
+│   ├── agent/              # Agent teams (task graph, role-based workers)
+│   └── telemetry/          # Event logging for routing calibration
 ├── .goreleaser.yaml        # Cross-platform build config
 └── openspec/               # Change management artifacts
 ```
