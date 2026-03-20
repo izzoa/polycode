@@ -185,8 +185,53 @@ func injectEnvKeys(cfg *config.Config, store auth.Store) {
 	}
 }
 
-// ReviewHasCritical returns true if the review text mentions critical issues.
+// ReviewHasCritical returns true if the review text indicates critical issues.
+// It checks for structured severity markers first, then falls back to keyword
+// detection while filtering out common false positives like "non-critical" and
+// "critical path".
 func ReviewHasCritical(review string) bool {
 	lower := strings.ToLower(review)
-	return strings.Contains(lower, "critical")
+	lines := strings.Split(lower, "\n")
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Structured severity markers (highest confidence):
+		//   "severity: critical", "**severity:** critical"
+		if strings.Contains(trimmed, "severity: critical") ||
+			strings.Contains(trimmed, "severity:** critical") {
+			return true
+		}
+
+		// Bracketed severity tags: [critical], [CRITICAL]
+		if strings.Contains(trimmed, "[critical]") {
+			return true
+		}
+
+		// Line-start markers:
+		//   "critical: ...", "- critical: ...", "CRITICAL — ..."
+		for _, prefix := range []string{"- critical:", "* critical:", "- **critical**:", "critical —", "critical:", "critical |"} {
+			if strings.HasPrefix(trimmed, prefix) {
+				return true
+			}
+		}
+	}
+
+	// Keyword fallback: match "critical" in prose while excluding known
+	// false-positive phrases.
+	if strings.Contains(lower, "critical") {
+		// Filter out common false positives
+		falsePositives := []string{"non-critical", "non critical", "critical path", "critical section", "mission-critical"}
+		cleaned := lower
+		for _, fp := range falsePositives {
+			cleaned = strings.ReplaceAll(cleaned, fp, "")
+		}
+		// If "critical" still appears after removing false-positive phrases,
+		// it's likely a real finding.
+		if strings.Contains(cleaned, "critical") {
+			return true
+		}
+	}
+
+	return false
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -14,7 +15,12 @@ import (
 	"github.com/izzoa/polycode/internal/agent"
 	"github.com/izzoa/polycode/internal/config"
 	"github.com/izzoa/polycode/internal/consensus"
+	"github.com/izzoa/polycode/internal/hooks"
+	"github.com/izzoa/polycode/internal/mcp"
+	"github.com/izzoa/polycode/internal/memory"
+	"github.com/izzoa/polycode/internal/permissions"
 	"github.com/izzoa/polycode/internal/provider"
+	"github.com/izzoa/polycode/internal/routing"
 	"github.com/izzoa/polycode/internal/telemetry"
 	"github.com/izzoa/polycode/internal/tokens"
 	"github.com/izzoa/polycode/internal/tui"
@@ -104,19 +110,76 @@ func startTUI(cfg *config.Config) error {
 		defer tlog.Close()
 	}
 
-	// Create consensus pipeline with tracker
+	// Working directory for repo-level config (instructions, permissions)
+	workDir, _ := os.Getwd()
+
+	// Create hook manager
+	hookMgr := hooks.NewHookManager(cfg.Hooks)
+
+	// Load permission policies (repo-level overrides user-level)
+	policyMgr, err := permissions.LoadPolicies(workDir)
+	if err != nil {
+		log.Printf("Warning: failed to load permission policies: %v", err)
+		// Create an empty policy manager so Check() returns PolicyAsk for everything
+		policyMgr, _ = permissions.LoadPolicies("")
+	}
+
+	// Create adaptive router
+	telemetryPath := filepath.Join(config.ConfigDir(), "telemetry.jsonl")
+	router := routing.NewRouter(telemetryPath)
+	if err := router.LoadTelemetryStats(); err != nil {
+		log.Printf("Warning: failed to load telemetry stats for router: %v", err)
+	}
+
+	// Parse initial operating mode
+	currentMode := routing.ModeBalanced
+	if m, ok := routing.ParseMode(cfg.DefaultMode); ok {
+		currentMode = m
+	}
+
+	// Select initial providers based on mode
+	routed := router.SelectProviders(currentMode, healthy, primary.ID())
+	if len(routed) == 0 {
+		routed = healthy // fallback
+	}
+
+	// Create repo memory store
+	memDir := filepath.Join(config.ConfigDir(), "memory")
+	memStore := memory.NewMemoryStore(memDir)
+
+	// Build system prompt from instruction hierarchy + repo memory
+	instructions := memory.LoadInstructions(workDir)
+	memPrompt := memStore.FormatForPrompt()
+	systemContent := instructions
+	if memPrompt != "" {
+		systemContent += "\n\n" + memPrompt
+	}
+
+	// Connect to MCP servers and discover tools
+	var mcpClient *mcp.MCPClient
+	if len(cfg.MCP.Servers) > 0 {
+		mcpClient = mcp.NewMCPClient(cfg.MCP.Servers)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := mcpClient.Connect(ctx); err != nil {
+			log.Printf("Warning: MCP connection failed: %v", err)
+			mcpClient = nil
+		}
+		cancel()
+	}
+
+	// Create consensus pipeline with routed providers
 	pipeline := consensus.NewPipeline(
-		healthy,
+		routed,
 		primary,
 		cfg.Consensus.Timeout,
 		cfg.Consensus.MinResponses,
 		tracker,
 	)
 
-	// System prompt used at the start of every conversation.
+	// System prompt built from instruction hierarchy + repo memory
 	systemPrompt := provider.Message{
 		Role:    provider.RoleSystem,
-		Content: "You are polycode, a helpful coding assistant. Provide clear, concise answers to programming questions. When the user asks you to make changes, use the available tools (file_read, file_write, shell_exec) to interact with their codebase.",
+		Content: systemContent,
 	}
 
 	// Conversation state persists across turns
@@ -137,17 +200,15 @@ func startTUI(cfg *config.Config) error {
 
 	// Auto-resume: load saved session if one exists
 	if savedSession, err := config.LoadSession(); err == nil && savedSession != nil && len(savedSession.Messages) > 0 {
-		// Restore conversation messages
+		// Restore conversation messages with full tool call data
+		restored := fromSessionMessages(savedSession.Messages)
 		conv.mu.Lock()
 		conv.messages = []provider.Message{systemPrompt}
-		for _, m := range savedSession.Messages {
-			if m.Role == "system" {
+		for _, m := range restored {
+			if m.Role == provider.RoleSystem {
 				continue // skip saved system prompt, we use the current one
 			}
-			conv.messages = append(conv.messages, provider.Message{
-				Role:    provider.Role(m.Role),
-				Content: m.Content,
-			})
+			conv.messages = append(conv.messages, m)
 		}
 		conv.mu.Unlock()
 
@@ -202,10 +263,14 @@ func startTUI(cfg *config.Config) error {
 			}
 		}
 
-		// Rebuild tracker and pipeline
+		// Rebuild tracker and pipeline with routing
 		tracker = tokens.NewTracker(newProviderModels, newProviderLimits)
+		newRouted := router.SelectProviders(currentMode, newHealthy, newPrimary.ID())
+		if len(newRouted) == 0 {
+			newRouted = newHealthy
+		}
 		pipeline = consensus.NewPipeline(
-			newHealthy,
+			newRouted,
 			newPrimary,
 			newCfg.Consensus.Timeout,
 			newCfg.Consensus.MinResponses,
@@ -215,6 +280,12 @@ func startTUI(cfg *config.Config) error {
 		healthy = newHealthy
 		primary = newPrimary
 		cfg = newCfg
+
+		// Rebuild hooks and permissions from new config
+		hookMgr = hooks.NewHookManager(newCfg.Hooks)
+		if newPolicyMgr, err := permissions.LoadPolicies(workDir); err == nil {
+			policyMgr = newPolicyMgr
+		}
 	})
 
 	// Set up test provider handler
@@ -387,6 +458,44 @@ func startTUI(cfg *config.Config) error {
 		}()
 	})
 
+	// Wire /mode handler — changes which providers participate in queries
+	model.SetModeChangeHandler(func(mode string) {
+		m, ok := routing.ParseMode(mode)
+		if !ok {
+			return
+		}
+		currentMode = m
+		newRouted := router.SelectProviders(currentMode, healthy, primary.ID())
+		if len(newRouted) == 0 {
+			newRouted = healthy
+		}
+		pipeline = consensus.NewPipeline(
+			newRouted,
+			primary,
+			cfg.Consensus.Timeout,
+			cfg.Consensus.MinResponses,
+			tracker,
+		)
+		program.Send(tui.ModeChangedMsg{Mode: mode})
+	})
+
+	// Wire /memory handler
+	model.SetMemoryHandler(func(args string) {
+		go func() {
+			if args == "" {
+				// Show all memory
+				content := memStore.FormatForPrompt()
+				if content == "" {
+					content = "No project memory stored yet."
+				}
+				program.Send(tui.ConsensusChunkMsg{Delta: "\n" + content + "\n", Done: true})
+				return
+			}
+			// Save memory: /memory <name> <content> or just show one entry
+			program.Send(tui.ConsensusChunkMsg{Delta: "\n" + memStore.FormatForPrompt() + "\n", Done: true})
+		}()
+	})
+
 	// Track yolo mode for auto-approve
 	yoloEnabled := false
 	model.SetYoloToggleHandler(func(enabled bool) {
@@ -432,6 +541,9 @@ func startTUI(cfg *config.Config) error {
 		go func() {
 			program.Send(tui.QueryStartMsg{})
 
+			// Fire pre-query hook
+			hookMgr.Run(hooks.PreQuery, hooks.HookContext{Prompt: prompt})
+
 			// Append user message to conversation
 			conv.append(provider.Message{
 				Role:    provider.RoleUser,
@@ -441,7 +553,11 @@ func startTUI(cfg *config.Config) error {
 			// Get full conversation history for this query
 			messages := conv.snapshot()
 
+			// Merge built-in tools with MCP-discovered tools
 			tools := action.AllTools()
+			if mcpClient != nil {
+				tools = append(tools, mcpClient.ToToolDefinitions()...)
+			}
 			opts := provider.QueryOpts{
 				MaxTokens: 4096,
 				Tools:     tools,
@@ -453,6 +569,7 @@ func startTUI(cfg *config.Config) error {
 			// Run the fan-out + consensus pipeline with full history
 			stream, fanOutResult, err := pipeline.Run(ctx, messages, opts)
 			if err != nil {
+				hookMgr.Run(hooks.OnError, hooks.HookContext{Prompt: prompt, Error: err.Error()})
 				program.Send(tui.ConsensusChunkMsg{Error: err, Done: true})
 				program.Send(tui.QueryDoneMsg{})
 				return
@@ -534,19 +651,44 @@ func startTUI(cfg *config.Config) error {
 				tracker.Add(primary.ID(), consensusUsage)
 			}
 
-			// Append the assistant's text response to conversation
-			if fullResponse != "" {
-				conv.append(provider.Message{
-					Role:    provider.RoleAssistant,
-					Content: fullResponse,
-				})
-			}
+			// NOTE: Don't append fullResponse to conv yet — if tool execution
+			// follows, we want to combine initial text + tool output into one
+			// assistant message so future turns have full context.
 
 			// Execute tool calls if the consensus response included them
 			if len(pendingToolCalls) > 0 {
-				// Build confirmation callback that bridges to TUI
-				// In yolo mode, auto-approve all tool actions
+				// Build confirmation callback that consults permission
+				// policies, then falls back to TUI confirmation or yolo mode.
 				confirmFunc := action.ConfirmFunc(func(description string) bool {
+					// Extract tool name from description for policy check.
+					// The description format is "tool_name: details..."
+					toolName := description
+					for _, tc := range pendingToolCalls {
+						// Match if description starts with or contains the tool name
+						if len(tc.Name) > 0 {
+							toolName = tc.Name
+							break
+						}
+					}
+
+					// Check permission policy
+					policy := policyMgr.Check(toolName)
+					switch policy {
+					case permissions.PolicyAllow:
+						program.Send(tui.ToolCallMsg{
+							ToolName:    toolName,
+							Description: "Policy-approved: " + description,
+						})
+						return true
+					case permissions.PolicyDeny:
+						program.Send(tui.ToolCallMsg{
+							ToolName:    toolName,
+							Description: "Policy-denied: " + description,
+						})
+						return false
+					}
+
+					// PolicyAsk — check yolo mode, then prompt user
 					if yoloEnabled {
 						program.Send(tui.ToolCallMsg{
 							ToolName:    "yolo",
@@ -570,6 +712,26 @@ func startTUI(cfg *config.Config) error {
 				})
 
 				executor := action.NewExecutor(confirmFunc, 120*time.Second)
+
+				// Register MCP tool handler for tools prefixed with "mcp_"
+				if mcpClient != nil {
+					executor.SetExternalHandler(func(call provider.ToolCall) (string, error) {
+						// MCP tool names are "mcp_{server}_{tool}" — parse server and tool
+						if len(call.Name) > 4 && call.Name[:4] == "mcp_" {
+							rest := call.Name[4:]
+							// Find the server name separator
+							for i, ch := range rest {
+								if ch == '_' {
+									serverName := rest[:i]
+									toolName := rest[i+1:]
+									return mcpClient.CallTool(ctx, serverName, toolName, []byte(call.Arguments))
+								}
+							}
+						}
+						return "", fmt.Errorf("unknown tool: %s", call.Name)
+					})
+				}
+
 				toolLoop := action.NewToolLoop(executor, primary)
 
 				// Build synthesis-context messages for the tool loop:
@@ -617,17 +779,34 @@ func startTUI(cfg *config.Config) error {
 				}
 				toolCancel()
 
-				// Append the tool loop's final response
+				// Combine initial consensus text + tool follow-up
 				if toolResponse != "" {
 					fullResponse += "\n" + toolResponse
-					conv.append(provider.Message{
-						Role:    provider.RoleAssistant,
-						Content: toolResponse,
-					})
 				}
+
+				// Fire post-tool hook
+				hookMgr.Run(hooks.PostTool, hooks.HookContext{
+					Prompt:   prompt,
+					Response: toolResponse,
+				})
 
 				program.Send(tui.ConsensusChunkMsg{Done: true})
 			}
+
+			// Append the complete assistant response (initial consensus + tool output)
+			// as a single message so future turns have full context
+			if fullResponse != "" {
+				conv.append(provider.Message{
+					Role:    provider.RoleAssistant,
+					Content: fullResponse,
+				})
+			}
+
+			// Fire post-query hook
+			hookMgr.Run(hooks.PostQuery, hooks.HookContext{
+				Prompt:   prompt,
+				Response: fullResponse,
+			})
 
 			// Send updated token snapshot to TUI
 			program.Send(tui.TokenUpdateMsg{Usage: tracker.Summary()})
@@ -635,13 +814,7 @@ func startTUI(cfg *config.Config) error {
 			// Auto-save session to disk
 			go func() {
 				snapshot := conv.snapshot()
-				var sessionMsgs []config.SessionMessage
-				for _, m := range snapshot {
-					sessionMsgs = append(sessionMsgs, config.SessionMessage{
-						Role:    string(m.Role),
-						Content: m.Content,
-					})
-				}
+				sessionMsgs := toSessionMessages(snapshot)
 
 				individual := make(map[string]string)
 				if fanOutResult != nil {
@@ -673,8 +846,71 @@ func startTUI(cfg *config.Config) error {
 
 	// Run the TUI
 	if _, err := program.Run(); err != nil {
+		if mcpClient != nil {
+			mcpClient.Close()
+		}
 		return fmt.Errorf("TUI error: %w", err)
 	}
 
+	// Clean up MCP connections
+	if mcpClient != nil {
+		mcpClient.Close()
+	}
+
 	return nil
+}
+
+// toSessionMessages converts provider messages to the serializable session
+// format, preserving tool call data and tool result metadata.
+func toSessionMessages(msgs []provider.Message) []config.SessionMessage {
+	out := make([]config.SessionMessage, 0, len(msgs))
+	for _, m := range msgs {
+		sm := config.SessionMessage{
+			Role:    string(m.Role),
+			Content: m.Content,
+		}
+		// Preserve tool calls on assistant messages
+		for _, tc := range m.ToolCalls {
+			sm.ToolCalls = append(sm.ToolCalls, config.ToolCallRecord{
+				ID:        tc.ID,
+				Name:      tc.Name,
+				Arguments: tc.Arguments,
+			})
+		}
+		// Preserve tool result metadata on tool role messages
+		if m.ToolCallID != "" {
+			sm.ToolResult = &config.ToolResultRecord{
+				ToolCallID: m.ToolCallID,
+				Output:     m.Content,
+			}
+		}
+		out = append(out, sm)
+	}
+	return out
+}
+
+// fromSessionMessages converts serialized session messages back to provider
+// messages, restoring tool call data and tool result metadata.
+func fromSessionMessages(msgs []config.SessionMessage) []provider.Message {
+	out := make([]provider.Message, 0, len(msgs))
+	for _, sm := range msgs {
+		m := provider.Message{
+			Role:    provider.Role(sm.Role),
+			Content: sm.Content,
+		}
+		// Restore tool calls
+		for _, tc := range sm.ToolCalls {
+			m.ToolCalls = append(m.ToolCalls, provider.ToolCall{
+				ID:        tc.ID,
+				Name:      tc.Name,
+				Arguments: tc.Arguments,
+			})
+		}
+		// Restore tool result ID
+		if sm.ToolResult != nil {
+			m.ToolCallID = sm.ToolResult.ToolCallID
+		}
+		out = append(out, m)
+	}
+	return out
 }

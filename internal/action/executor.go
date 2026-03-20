@@ -19,10 +19,16 @@ type ToolResult struct {
 // It receives a human-readable description and returns true if the user approves.
 type ConfirmFunc func(description string) bool
 
+// ExternalToolHandler is a callback for handling tool calls that the built-in
+// executor doesn't recognize (e.g. MCP tools). It receives the tool call and
+// returns the output string or an error.
+type ExternalToolHandler func(call provider.ToolCall) (string, error)
+
 // Executor dispatches tool calls to the appropriate handler.
 type Executor struct {
 	confirm    ConfirmFunc
 	cmdTimeout time.Duration
+	external   ExternalToolHandler
 }
 
 // NewExecutor creates an Executor with the given confirmation callback and
@@ -32,6 +38,12 @@ func NewExecutor(confirm ConfirmFunc, cmdTimeout time.Duration) *Executor {
 		confirm:    confirm,
 		cmdTimeout: cmdTimeout,
 	}
+}
+
+// SetExternalHandler registers a handler for tool calls not recognized by the
+// built-in executor (e.g. MCP-discovered tools).
+func (e *Executor) SetExternalHandler(handler ExternalToolHandler) {
+	e.external = handler
 }
 
 // Execute parses a ToolCall and routes it to the correct handler.
@@ -44,6 +56,15 @@ func (e *Executor) Execute(call provider.ToolCall) ToolResult {
 	case "shell_exec":
 		return e.executeShellExec(call)
 	default:
+		// Try external handler (e.g. MCP tools) before failing
+		if e.external != nil {
+			output, err := e.external(call)
+			return ToolResult{
+				ToolCallID: call.ID,
+				Output:     output,
+				Error:      err,
+			}
+		}
 		return ToolResult{
 			ToolCallID: call.ID,
 			Error:      fmt.Errorf("unknown tool: %s", call.Name),

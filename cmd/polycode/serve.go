@@ -182,7 +182,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// CORS middleware
 	handler := corsMiddleware(mux)
 
-	addr := fmt.Sprintf(":%d", port)
+	// Bind to loopback only — the editor bridge should not be exposed on the
+	// local network. Use --addr 0.0.0.0 to override if needed.
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	server := &http.Server{
 		Addr:    addr,
 		Handler: handler,
@@ -205,7 +207,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		configPath = config.ConfigPath()
 	}
 
-	fmt.Printf("Polycode editor bridge listening on http://localhost:%d\n", port)
+	fmt.Printf("Polycode editor bridge listening on http://%s\n", addr)
 	fmt.Printf("Config: %s\n", configPath)
 	fmt.Printf("Endpoints: POST /prompt, POST /review, GET /status\n")
 
@@ -218,7 +220,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		// Only allow requests from localhost origins (editor extensions).
+		origin := r.Header.Get("Origin")
+		if isLocalhostOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
@@ -229,6 +235,16 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isLocalhostOrigin returns true if the origin is a localhost address.
+func isLocalhostOrigin(origin string) bool {
+	return strings.HasPrefix(origin, "http://localhost") ||
+		strings.HasPrefix(origin, "http://127.0.0.1") ||
+		strings.HasPrefix(origin, "https://localhost") ||
+		strings.HasPrefix(origin, "https://127.0.0.1") ||
+		origin == "vscode-webview://" ||
+		strings.HasPrefix(origin, "vscode-webview://")
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
