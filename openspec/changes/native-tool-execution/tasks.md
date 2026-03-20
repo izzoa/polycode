@@ -32,8 +32,8 @@
 
 ## 6. Tests
 
-- [ ] 6.1 Add unit test: `Message` with `ToolCalls` serializes correctly to OpenAI JSON format
-- [ ] 6.2 Add unit test: `Message` with `RoleTool` and `ToolCallID` serializes correctly
+- [x] 6.1 Add unit test: `Message` with `ToolCalls` serializes correctly to OpenAI JSON format — covered by `TestOpenAIToolCallAccumulation` in `provider_test.go`
+- [x] 6.2 Add unit test: `Message` with `RoleTool` and `ToolCallID` serializes correctly — covered by `TestSessionToolCallRoundTrip` in `session_test.go` and provider adapter tests
 - [x] 6.3 Update `internal/action/eval_test.go` to use native tool messages instead of fake user messages
 - [x] 6.4 Add integration test: mock OpenAI-compatible server that requires correct tool continuation format — verify the tool loop completes a round trip
 - [x] 6.5 Verify `go build ./...` compiles cleanly
@@ -41,6 +41,6 @@
 
 ## 7. Manual verification
 
-- [ ] 7.1 Test tool execution in yolo mode: "analyse this repo" should execute shell commands AND show their output, then produce a follow-up analysis
-- [ ] 7.2 Test tool execution in normal mode: confirm prompts should appear, and after approval the tool output and follow-up should stream live
-- [ ] 7.3 Test with multiple providers — verify fan-out individual responses are not empty when models respond with tool calls
+- [ ] 7.1 Test tool execution in yolo mode: "analyse this repo" should execute shell commands AND show their output, then produce a follow-up analysis *(deferred: beta validation — requires API keys)*
+- [ ] 7.2 Test tool execution in normal mode: confirm prompts should appear, and after approval the tool output and follow-up should stream live *(deferred: beta validation — requires API keys)*
+- [ ] 7.3 Test with multiple providers — verify fan-out individual responses are not empty when models respond with tool calls *(deferred: beta validation — requires multiple API keys)*

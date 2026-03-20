@@ -252,6 +252,7 @@ func (m Model) renderHelp() string {
 		{"/mode <name>", "Switch mode: quick, balanced, thorough, yolo"},
 		{"/yolo", "Toggle yolo mode (auto-approve all tool actions)"},
 		{"/memory", "View repo memory"},
+		{"/skill [list|install|remove]", "Manage installed skills"},
 		{"/help", "Toggle this help overlay"},
 		{"/exit", "Quit polycode"},
 		{"Tab", "Accept slash completion"},

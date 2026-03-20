@@ -6,10 +6,13 @@ import (
 	"runtime/debug"
 	"strings"
 
+	"path/filepath"
+
 	"github.com/charmbracelet/huh"
 	"github.com/izzoa/polycode/internal/auth"
 	"github.com/izzoa/polycode/internal/config"
 	"github.com/izzoa/polycode/internal/provider"
+	"github.com/izzoa/polycode/internal/skill"
 	"github.com/spf13/cobra"
 )
 
@@ -167,6 +170,62 @@ func main() {
 		RunE:  runImport,
 	}
 	rootCmd.AddCommand(importCmd)
+
+	// Skill subcommands
+	skillCmd := &cobra.Command{
+		Use:   "skill",
+		Short: "Manage installed skills/plugins",
+	}
+
+	skillListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List installed skills",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			reg := skill.NewRegistry(filepath.Join(config.ConfigDir(), "skills"))
+			if err := reg.Load(); err != nil {
+				return err
+			}
+			fmt.Print(reg.FormatList())
+			return nil
+		},
+	}
+
+	skillInstallCmd := &cobra.Command{
+		Use:   "install <path>",
+		Short: "Install a skill from a local directory",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			reg := skill.NewRegistry(filepath.Join(config.ConfigDir(), "skills"))
+			if err := reg.Load(); err != nil {
+				return err
+			}
+			if err := reg.Install(args[0]); err != nil {
+				return err
+			}
+			fmt.Println("Skill installed successfully.")
+			return nil
+		},
+	}
+
+	skillRemoveCmd := &cobra.Command{
+		Use:   "remove <name>",
+		Short: "Remove an installed skill",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			reg := skill.NewRegistry(filepath.Join(config.ConfigDir(), "skills"))
+			if err := reg.Load(); err != nil {
+				return err
+			}
+			if err := reg.Remove(args[0]); err != nil {
+				return err
+			}
+			fmt.Println("Skill removed.")
+			return nil
+		},
+	}
+
+	skillCmd.AddCommand(skillListCmd, skillInstallCmd, skillRemoveCmd)
+	rootCmd.AddCommand(skillCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

@@ -27,6 +27,6 @@
 
 ## 5. Manual Verification
 
-- [ ] 5.1 Test with a local Ollama instance (`http://localhost:11434/v1`) — verify models are discovered and displayed
-- [ ] 5.2 Test with an unreachable URL — verify graceful fallback to text input
-- [ ] 5.3 Test with an endpoint requiring auth (e.g., OpenRouter) — verify API key is sent and models are listed
+- [ ] 5.1 Test with a local Ollama instance (`http://localhost:11434/v1`) — verify models are discovered and displayed *(deferred: requires running Ollama instance)*
+- [ ] 5.2 Test with an unreachable URL — verify graceful fallback to text input *(deferred: beta validation)*
+- [ ] 5.3 Test with an endpoint requiring auth (e.g., OpenRouter) — verify API key is sent and models are listed *(deferred: requires API key)*

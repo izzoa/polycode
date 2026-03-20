@@ -23,14 +23,21 @@ type ProviderStats struct {
 	AvgLatencyMS    float64
 	ErrorRate       float64
 	TotalSuccessful int
+	AcceptRate      float64 // user feedback: fraction of accepted tool calls
+	FeedbackCount   int     // total feedback events
 }
+
+// calibrationInterval is how many quick-mode queries between full-consensus
+// calibration runs.
+const calibrationInterval = 10
 
 // Router selects providers based on telemetry-derived heuristic scores.
 type Router struct {
-	stats         map[string]ProviderStats
-	statsTime     time.Time
-	telemetryPath string
-	mu            sync.RWMutex
+	stats           map[string]ProviderStats
+	statsTime       time.Time
+	telemetryPath   string
+	quickQueryCount int // counts quick-mode queries for periodic calibration
+	mu              sync.RWMutex
 }
 
 // NewRouter creates a Router that reads telemetry data from the given path.
@@ -58,10 +65,13 @@ func (r *Router) LoadTelemetryStats() error {
 	defer f.Close()
 
 	type accumulator struct {
-		totalLatency float64
-		totalQueries int
-		successCount int
-		errorCount   int
+		totalLatency  float64
+		totalQueries  int
+		successCount  int
+		errorCount    int
+		acceptCount   int
+		rejectCount   int
+		feedbackCount int
 	}
 
 	accum := make(map[string]*accumulator)
@@ -73,9 +83,6 @@ func (r *Router) LoadTelemetryStats() error {
 			continue // skip malformed lines
 		}
 
-		if ev.EventType != telemetry.EventProviderResponse {
-			continue
-		}
 		if ev.ProviderID == "" {
 			continue
 		}
@@ -86,12 +93,22 @@ func (r *Router) LoadTelemetryStats() error {
 			accum[ev.ProviderID] = a
 		}
 
-		a.totalQueries++
-		if ev.Success != nil && *ev.Success {
-			a.successCount++
-			a.totalLatency += float64(ev.LatencyMS)
-		} else {
-			a.errorCount++
+		switch ev.EventType {
+		case telemetry.EventProviderResponse:
+			a.totalQueries++
+			if ev.Success != nil && *ev.Success {
+				a.successCount++
+				a.totalLatency += float64(ev.LatencyMS)
+			} else {
+				a.errorCount++
+			}
+		case telemetry.EventUserFeedback:
+			a.feedbackCount++
+			if ev.Accepted != nil && *ev.Accepted {
+				a.acceptCount++
+			} else {
+				a.rejectCount++
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -108,11 +125,19 @@ func (r *Router) LoadTelemetryStats() error {
 		if a.totalQueries > 0 {
 			errorRate = float64(a.errorCount) / float64(a.totalQueries)
 		}
+		var acceptRate float64
+		if a.feedbackCount > 0 {
+			acceptRate = float64(a.acceptCount) / float64(a.feedbackCount)
+		} else {
+			acceptRate = 1.0 // neutral if no feedback
+		}
 		stats[pid] = ProviderStats{
 			ProviderID:      pid,
 			AvgLatencyMS:    avgLatency,
 			ErrorRate:       errorRate,
 			TotalSuccessful: a.successCount,
+			AcceptRate:      acceptRate,
+			FeedbackCount:   a.feedbackCount,
 		}
 	}
 
@@ -126,7 +151,8 @@ func (r *Router) LoadTelemetryStats() error {
 
 // ScoreProvider computes a heuristic score for a provider based on its stats.
 // Higher scores indicate better providers. Providers with zero history receive
-// a neutral score of 1.0.
+// a neutral score of 1.0. The score factors in latency, error rate, volume,
+// and user acceptance rate from feedback signals.
 func (r *Router) ScoreProvider(stats ProviderStats) float64 {
 	if stats.TotalSuccessful == 0 && stats.ErrorRate == 0 {
 		return 1.0 // neutral score for providers with no history
@@ -134,7 +160,16 @@ func (r *Router) ScoreProvider(stats ProviderStats) float64 {
 	if stats.AvgLatencyMS <= 0 {
 		return 0.0
 	}
-	return (1.0 / stats.AvgLatencyMS) * (1.0 - stats.ErrorRate) * math.Log(float64(stats.TotalSuccessful)+1)
+	base := (1.0 / stats.AvgLatencyMS) * (1.0 - stats.ErrorRate) * math.Log(float64(stats.TotalSuccessful)+1)
+
+	// Weight by user feedback acceptance rate if we have enough data.
+	// AcceptRate defaults to 1.0 if no feedback, so this is a no-op when
+	// there's no user signal.
+	acceptWeight := stats.AcceptRate
+	if stats.FeedbackCount == 0 {
+		acceptWeight = 1.0
+	}
+	return base * acceptWeight
 }
 
 // refreshIfStale reloads stats from disk if they are older than staleDuration.
@@ -159,6 +194,17 @@ func (r *Router) SelectProviders(mode Mode, allHealthy []provider.Provider, prim
 
 	switch mode {
 	case ModeQuick:
+		// Periodic full-consensus calibration: every calibrationInterval queries
+		// in quick mode, fan out to all providers to recalibrate routing scores.
+		r.mu.Lock()
+		r.quickQueryCount++
+		calibrate := r.quickQueryCount%calibrationInterval == 0
+		r.mu.Unlock()
+
+		if calibrate && len(allHealthy) > 1 {
+			return allHealthy
+		}
+
 		for _, p := range allHealthy {
 			if p.ID() == primaryID {
 				return []provider.Provider{p}

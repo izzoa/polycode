@@ -21,6 +21,7 @@ import (
 	"github.com/izzoa/polycode/internal/permissions"
 	"github.com/izzoa/polycode/internal/provider"
 	"github.com/izzoa/polycode/internal/routing"
+	"github.com/izzoa/polycode/internal/skill"
 	"github.com/izzoa/polycode/internal/telemetry"
 	"github.com/izzoa/polycode/internal/tokens"
 	"github.com/izzoa/polycode/internal/tui"
@@ -165,6 +166,18 @@ func startTUI(cfg *config.Config) error {
 			mcpClient = nil
 		}
 		cancel()
+	}
+
+	// Load installed skills
+	skillsDir := filepath.Join(config.ConfigDir(), "skills")
+	skillReg := skill.NewRegistry(skillsDir)
+	if err := skillReg.Load(); err != nil {
+		log.Printf("Warning: failed to load skills: %v", err)
+	}
+
+	// Append skill system prompts to system content
+	if skillPrompts := skillReg.SystemPrompts(); skillPrompts != "" {
+		systemContent += "\n\n" + skillPrompts
 	}
 
 	// Create consensus pipeline with routed providers
@@ -479,6 +492,38 @@ func startTUI(cfg *config.Config) error {
 		program.Send(tui.ModeChangedMsg{Mode: mode})
 	})
 
+	// Wire /skill handler
+	model.SetSkillHandler(func(subcommand, args string) {
+		go func() {
+			switch subcommand {
+			case "", "list":
+				program.Send(tui.ConsensusChunkMsg{Delta: "\n" + skillReg.FormatList() + "\n", Done: true})
+			case "install":
+				if args == "" {
+					program.Send(tui.ConsensusChunkMsg{Delta: "\nUsage: /skill install <path>\n", Done: true})
+					return
+				}
+				if err := skillReg.Install(args); err != nil {
+					program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nInstall failed: %v\n", err), Done: true})
+					return
+				}
+				program.Send(tui.ConsensusChunkMsg{Delta: "\nSkill installed successfully.\n", Done: true})
+			case "remove":
+				if args == "" {
+					program.Send(tui.ConsensusChunkMsg{Delta: "\nUsage: /skill remove <name>\n", Done: true})
+					return
+				}
+				if err := skillReg.Remove(args); err != nil {
+					program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nRemove failed: %v\n", err), Done: true})
+					return
+				}
+				program.Send(tui.ConsensusChunkMsg{Delta: "\nSkill removed.\n", Done: true})
+			default:
+				program.Send(tui.ConsensusChunkMsg{Delta: "\nUsage: /skill [list|install <path>|remove <name>]\n", Done: true})
+			}
+		}()
+	})
+
 	// Wire /memory handler
 	model.SetMemoryHandler(func(args string) {
 		go func() {
@@ -553,11 +598,12 @@ func startTUI(cfg *config.Config) error {
 			// Get full conversation history for this query
 			messages := conv.snapshot()
 
-			// Merge built-in tools with MCP-discovered tools
+			// Merge built-in tools with MCP-discovered and skill-provided tools
 			tools := action.AllTools()
 			if mcpClient != nil {
 				tools = append(tools, mcpClient.ToToolDefinitions()...)
 			}
+			tools = append(tools, skillReg.ToToolDefinitions()...)
 			opts := provider.QueryOpts{
 				MaxTokens: 4096,
 				Tools:     tools,
@@ -659,12 +705,11 @@ func startTUI(cfg *config.Config) error {
 			if len(pendingToolCalls) > 0 {
 				// Build confirmation callback that consults permission
 				// policies, then falls back to TUI confirmation or yolo mode.
+				// Also logs user feedback as telemetry for router calibration.
 				confirmFunc := action.ConfirmFunc(func(description string) bool {
 					// Extract tool name from description for policy check.
-					// The description format is "tool_name: details..."
 					toolName := description
 					for _, tc := range pendingToolCalls {
-						// Match if description starts with or contains the tool name
 						if len(tc.Name) > 0 {
 							toolName = tc.Name
 							break
@@ -701,36 +746,50 @@ func startTUI(cfg *config.Config) error {
 						Description: description,
 						ResponseCh:  responseCh,
 					})
+
+					var accepted bool
 					select {
-					case response := <-responseCh:
-						return response
+					case accepted = <-responseCh:
 					case <-time.After(5 * time.Minute):
-						return false
+						accepted = false
 					case <-ctx.Done():
-						return false
+						accepted = false
 					}
+
+					// Log user feedback for router calibration
+					if tlog != nil {
+						a := accepted
+						tlog.Log(telemetry.Event{
+							ProviderID: primary.ID(),
+							EventType:  telemetry.EventUserFeedback,
+							ToolName:   toolName,
+							Accepted:   &a,
+						})
+					}
+					return accepted
 				})
 
 				executor := action.NewExecutor(confirmFunc, 120*time.Second)
 
-				// Register MCP tool handler for tools prefixed with "mcp_"
-				if mcpClient != nil {
-					executor.SetExternalHandler(func(call provider.ToolCall) (string, error) {
-						// MCP tool names are "mcp_{server}_{tool}" — parse server and tool
-						if len(call.Name) > 4 && call.Name[:4] == "mcp_" {
-							rest := call.Name[4:]
-							// Find the server name separator
-							for i, ch := range rest {
-								if ch == '_' {
-									serverName := rest[:i]
-									toolName := rest[i+1:]
-									return mcpClient.CallTool(ctx, serverName, toolName, []byte(call.Arguments))
-								}
+				// Register external tool handlers for MCP and skill tools
+				executor.SetExternalHandler(func(call provider.ToolCall) (string, error) {
+					// MCP tool names are "mcp_{server}_{tool}"
+					if mcpClient != nil && len(call.Name) > 4 && call.Name[:4] == "mcp_" {
+						rest := call.Name[4:]
+						for i, ch := range rest {
+							if ch == '_' {
+								serverName := rest[:i]
+								toolName := rest[i+1:]
+								return mcpClient.CallTool(ctx, serverName, toolName, []byte(call.Arguments))
 							}
 						}
-						return "", fmt.Errorf("unknown tool: %s", call.Name)
-					})
-				}
+					}
+					// Skill tool names are "skill_{name}_{tool}"
+					if len(call.Name) > 6 && call.Name[:6] == "skill_" {
+						return skillReg.ExecuteTool(ctx, call.Name, call.Arguments)
+					}
+					return "", fmt.Errorf("unknown tool: %s", call.Name)
+				})
 
 				toolLoop := action.NewToolLoop(executor, primary)
 

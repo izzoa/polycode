@@ -603,6 +603,23 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 					}
 					return m, nil
 				}
+				if strings.HasPrefix(prompt, "/skill") {
+					m.textarea.Reset()
+					if m.onSkill != nil {
+						rest := strings.TrimSpace(strings.TrimPrefix(prompt, "/skill"))
+						parts := strings.SplitN(rest, " ", 2)
+						sub := ""
+						args := ""
+						if len(parts) > 0 {
+							sub = parts[0]
+						}
+						if len(parts) > 1 {
+							args = parts[1]
+						}
+						m.onSkill(sub, args)
+					}
+					return m, nil
+				}
 				if strings.HasPrefix(prompt, "/plan ") {
 					request := strings.TrimPrefix(prompt, "/plan ")
 					m.textarea.Reset()

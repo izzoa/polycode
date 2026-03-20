@@ -69,7 +69,7 @@
 - [x] 9.2 Write unit tests for consensus prompt building and truncation logic
 - [x] 9.3 Write unit tests for fan-out dispatcher and response collector (using mock providers)
 - [x] 9.4 Write integration test: end-to-end query with mock providers → consensus → action execution
-- [ ] 9.5 Manual smoke test with real providers (Anthropic, OpenAI, Gemini)
+- [ ] 9.5 Manual smoke test with real providers (Anthropic, OpenAI, Gemini) *(deferred: beta validation — requires API keys)*
 
 ## 10. Polish & Distribution
 

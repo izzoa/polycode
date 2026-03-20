@@ -26,6 +26,7 @@ const (
 	EventToolExecuted      EventType = "tool_executed"
 	EventPipelineError     EventType = "pipeline_error"
 	EventQueryStart        EventType = "query_start"
+	EventUserFeedback      EventType = "user_feedback"
 )
 
 // Event is a single telemetry record written as one JSON line.
@@ -39,6 +40,7 @@ type Event struct {
 	ToolName     string    `json:"tool_name,omitempty"`
 	Success      *bool     `json:"success,omitempty"`
 	Error        string    `json:"error,omitempty"`
+	Accepted     *bool     `json:"accepted,omitempty"` // user feedback: tool accepted/rejected
 }
 
 // Logger appends telemetry events to a JSONL file.

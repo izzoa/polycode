@@ -26,4 +26,4 @@
 - [x] 4.1 Remove the `bufio.NewReader` usage from `runSetupWizard()` (replace with huh prompts); remove `selectModel()` function
 - [x] 4.2 Verify `go build ./...` compiles cleanly
 - [x] 4.3 Verify `go test ./... -count=1` passes (existing tests should not break since setup.go has no tests — config/provider tests remain green)
-- [ ] 4.4 Manual test: run `polycode init` (or delete config and run `polycode`) to verify the full interactive wizard flow end-to-end
+- [ ] 4.4 Manual test: run `polycode init` (or delete config and run `polycode`) to verify the full interactive wizard flow end-to-end *(deferred: beta validation — requires interactive terminal)*

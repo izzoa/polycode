@@ -201,6 +201,7 @@ type Model struct {
 	onPlan          func(request string)
 	onModeChange    func(mode string)
 	onMemory        func(args string)
+	onSkill         func(subcommand, args string)
 	onSave          func()
 	onExport        func(path string)
 	onYoloToggle    func(enabled bool)
@@ -315,7 +316,7 @@ func NewModel(providerNames []string, primaryName string, version string) Model 
 		slashCommands: []string{
 			"/clear", "/exit", "/export", "/help",
 			"/memory", "/mode", "/plan ", "/quit",
-			"/save", "/settings", "/yolo",
+			"/save", "/settings", "/skill", "/yolo",
 		},
 		slashCompIdx:    -1,
 		modePickerItems: []string{"quick", "balanced", "thorough"},
@@ -356,6 +357,11 @@ func (m *Model) SetYoloToggleHandler(handler func(enabled bool)) {
 // SetMemoryHandler sets the callback for /memory command.
 func (m *Model) SetMemoryHandler(handler func(args string)) {
 	m.onMemory = handler
+}
+
+// SetSkillHandler sets the callback for /skill command.
+func (m *Model) SetSkillHandler(handler func(subcommand, args string)) {
+	m.onSkill = handler
 }
 
 // SetSaveHandler sets the callback for /save command.
