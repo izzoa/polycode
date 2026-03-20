@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
-## [2.1.0] - 2026-03-20
+## [1.9.0] - 2026-03-20
 
 ### Added
 - **Runtime subsystem integration**: Hooks (pre_query, post_query, post_tool, on_error), permission policies, mode-based routing, repo memory, instruction hierarchy, and MCP tools are now wired into the main conversation loop — previously these existed as packages but were not active at runtime.
@@ -31,7 +31,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - System prompt now built from instruction hierarchy (`.polycode/instructions.md` > `~/.config/polycode/instructions.md` > default) plus repo memory, instead of a hardcoded string.
 - Provider selection happens per query via the adaptive router, not from a static pipeline rebuilt only on mode/config changes.
 
-## [2.0.0] - 2026-03-19
+## [1.8.0] - 2026-03-19
 
 ### Added
 - **Native tool call protocol**: `provider.Message` now supports `ToolCalls`, `ToolCallID`, and `RoleTool` for correct OpenAI-compatible tool continuation. All provider adapters updated.
