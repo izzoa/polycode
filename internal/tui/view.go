@@ -520,14 +520,12 @@ func (m Model) renderCommandPalette() string {
 		lines = append(lines, "  "+descStyle.Render("No matching commands"))
 	} else {
 		for i, cmd := range m.paletteMatches {
-			cursor := "  "
 			style := normalStyle
-			if i == m.paletteCursor {
-				cursor = "▸ "
-				style = selectedStyle
+			if i == 0 {
+				style = selectedStyle // first match highlighted for Tab accept
 			}
 
-			line := cursor + style.Render(cmd.Name)
+			line := "  " + style.Render(cmd.Name)
 
 			// Pad name to align descriptions
 			padding := 22 - len(cmd.Name)
@@ -546,7 +544,7 @@ func (m Model) renderCommandPalette() string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, "  "+hintStyle.Render("↑/↓ choose  enter confirm  esc cancel"))
+	lines = append(lines, "  "+hintStyle.Render("tab accept  enter submit  type to filter"))
 
 	border := m.styles.InputBorder.Width(m.width - 4)
 	return border.Render(strings.Join(lines, "\n"))

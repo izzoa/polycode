@@ -466,9 +466,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.paletteOpen = true
 			m.paletteFilter = filter
 			m.paletteMatches = m.filterPaletteCommands(filter)
-			if m.paletteCursor >= len(m.paletteMatches) {
-				m.paletteCursor = 0
-			}
 		} else {
 			m.paletteOpen = false
 		}
@@ -516,13 +513,6 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.chatView.GotoBottom()
 		return m, nil
 	case "up":
-		// Navigate palette when it's showing
-		if m.paletteOpen && len(m.paletteMatches) > 0 {
-			if m.paletteCursor > 0 {
-				m.paletteCursor--
-			}
-			return m, nil
-		}
 		if m.tabBarFocused {
 			break // let default handling happen
 		}
@@ -551,13 +541,6 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 	case "down":
-		// Navigate palette when it's showing
-		if m.paletteOpen && len(m.paletteMatches) > 0 {
-			if m.paletteCursor < len(m.paletteMatches)-1 {
-				m.paletteCursor++
-			}
-			return m, nil
-		}
 		// Return focus to textarea from tab bar
 		if m.tabBarFocused {
 			m.tabBarFocused = false
@@ -616,9 +599,9 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 	case "tab":
-		// Tab accepts the selected palette command when palette is showing
-		if m.paletteOpen && len(m.paletteMatches) > 0 && m.paletteCursor < len(m.paletteMatches) {
-			selected := m.paletteMatches[m.paletteCursor]
+		// Tab accepts the first palette match when palette is showing
+		if m.paletteOpen && len(m.paletteMatches) > 0 {
+			selected := m.paletteMatches[0]
 			// Strip placeholder part (e.g., "/mode <name>" -> "/mode ")
 			name := selected.Name
 			if idx := strings.IndexAny(name, "<["); idx > 0 {
@@ -686,7 +669,7 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 					case "quick", "balanced", "thorough":
 						m.currentMode = modeName
 						if m.onModeChange != nil {
-							m.onModeChange(modeName)
+							go m.onModeChange(modeName)
 						}
 					}
 					return m, nil

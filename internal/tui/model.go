@@ -155,7 +155,6 @@ type Model struct {
 	paletteOpen    bool           // true when command palette overlay is visible
 	paletteFilter  string         // current filter text
 	paletteMatches []slashCommand // filtered commands
-	paletteCursor  int            // selected item index
 
 	// Tool execution status
 	toolStatus string // e.g., "Reading main.go..." — shown in consensus panel during tool exec
