@@ -932,13 +932,20 @@ func startTUI(cfg *config.Config) error {
 				}()
 
 				var toolResponse string
+				var toolLoopOK bool
+				var wroteFiles bool
 				for chunk := range toolOut {
 					if chunk.Error != nil {
 						program.Send(tui.ConsensusChunkMsg{Error: chunk.Error})
 						break
 					}
 					if chunk.Done {
+						toolLoopOK = true
 						break
+					}
+					// Track whether any file_write was executed
+					if chunk.Status && strings.Contains(chunk.Delta, "file_write") {
+						wroteFiles = true
 					}
 					// Display all chunks, but only persist model text (not status)
 					program.Send(tui.ConsensusChunkMsg{Delta: chunk.Delta})
@@ -953,35 +960,37 @@ func startTUI(cfg *config.Config) error {
 					fullResponse += "\n" + toolResponse
 				}
 
-				// Run verification if configured or auto-detected after tool execution.
-				verifyCmd := cfg.Consensus.VerifyCommand
-				if verifyCmd == "" {
-					verifyCmd = action.DetectVerifyCommand(workDir)
-				}
-				if verifyCmd != "" {
-					program.Send(tui.ConsensusChunkMsg{
-						Delta: fmt.Sprintf("\nRunning verification: `%s`...\n", verifyCmd),
-					})
-					verifyOut, verifyOK, verifyErr := action.RunVerification(
-						context.Background(), verifyCmd, workDir, 2*time.Minute,
-					)
-					if verifyErr != nil {
+				// Run verification only if the tool loop completed successfully
+				// and files were actually written.
+				if toolLoopOK && wroteFiles {
+					verifyCmd := cfg.Consensus.VerifyCommand
+					if verifyCmd == "" {
+						verifyCmd = action.DetectVerifyCommand(workDir)
+					}
+					if verifyCmd != "" {
 						program.Send(tui.ConsensusChunkMsg{
-							Delta: fmt.Sprintf("\nVerification error: %v\n", verifyErr),
+							Delta: fmt.Sprintf("\nRunning verification: `%s`...\n", verifyCmd),
 						})
-					} else if !verifyOK {
-						// Show truncated failure output
-						display := verifyOut
-						if len(display) > 1000 {
-							display = display[:1000] + "\n... (truncated)"
+						verifyOut, verifyOK, verifyErr := action.RunVerification(
+							context.Background(), verifyCmd, workDir, 2*time.Minute,
+						)
+						if verifyErr != nil {
+							program.Send(tui.ConsensusChunkMsg{
+								Delta: fmt.Sprintf("\nVerification error: %v\n", verifyErr),
+							})
+						} else if !verifyOK {
+							display := verifyOut
+							if len(display) > 1000 {
+								display = display[:1000] + "\n... (truncated)"
+							}
+							program.Send(tui.ConsensusChunkMsg{
+								Delta: fmt.Sprintf("\nVerification failed:\n```\n%s\n```\n", display),
+							})
+						} else {
+							program.Send(tui.ConsensusChunkMsg{
+								Delta: "\nVerification passed.\n",
+							})
 						}
-						program.Send(tui.ConsensusChunkMsg{
-							Delta: fmt.Sprintf("\nVerification failed:\n```\n%s\n```\n", display),
-						})
-					} else {
-						program.Send(tui.ConsensusChunkMsg{
-							Delta: "\nVerification passed.\n",
-						})
 					}
 				}
 

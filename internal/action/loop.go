@@ -7,8 +7,6 @@ import (
 	"github.com/izzoa/polycode/internal/provider"
 )
 
-const maxIterations = 10
-
 // ToolLoop manages the iterative cycle of executing tool calls and sending
 // results back to the model until the model produces a final text response.
 type ToolLoop struct {
@@ -27,7 +25,7 @@ func NewToolLoop(executor *Executor, primary provider.Provider) *ToolLoop {
 // Run executes tool calls, appends results as native tool messages, and
 // re-queries the model. It streams chunks to the output channel as they
 // arrive from the provider. It repeats until the model stops issuing tool
-// calls or the iteration limit is reached.
+// calls or the context is cancelled.
 func (l *ToolLoop) Run(
 	ctx context.Context,
 	messages []provider.Message,
@@ -41,7 +39,7 @@ func (l *ToolLoop) Run(
 
 	currentCalls := toolCalls
 
-	for i := range maxIterations {
+	for {
 		if len(currentCalls) == 0 {
 			select {
 			case out <- provider.StreamChunk{Done: true}:
@@ -103,7 +101,7 @@ func (l *ToolLoop) Run(
 		// Send updated conversation back to the model.
 		stream, err := l.primary.Query(ctx, msgs, opts)
 		if err != nil {
-			return fmt.Errorf("tool loop iteration %d: %w", i+1, err)
+			return fmt.Errorf("tool loop: %w", err)
 		}
 
 		// Stream response chunks live to output, collecting for conversation state.
@@ -111,7 +109,7 @@ func (l *ToolLoop) Run(
 		var newToolCalls []provider.ToolCall
 		for chunk := range stream {
 			if chunk.Error != nil {
-				return fmt.Errorf("tool loop iteration %d: %w", i+1, chunk.Error)
+				return fmt.Errorf("tool loop: %w", chunk.Error)
 			}
 			if chunk.Delta != "" {
 				responseContent += chunk.Delta
@@ -151,6 +149,4 @@ func (l *ToolLoop) Run(
 		}
 		return nil
 	}
-
-	return fmt.Errorf("tool loop exceeded maximum iterations (%d)", maxIterations)
 }

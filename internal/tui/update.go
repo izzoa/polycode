@@ -515,21 +515,24 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		// If textarea is empty or browsing history, cycle backward
 		if strings.TrimSpace(m.textarea.Value()) == "" || m.inputHistIdx >= 0 {
-			if len(m.inputHistory) > 0 {
-				if m.inputHistIdx < 0 {
-					// Entering history mode — save current draft
-					m.inputDraft = m.textarea.Value()
-					m.inputHistIdx = len(m.inputHistory) - 1
-				} else if m.inputHistIdx > 0 {
-					m.inputHistIdx--
-				} else {
-					return m, nil // at oldest entry
-				}
+			if len(m.inputHistory) > 0 && m.inputHistIdx < 0 {
+				// First press: enter history mode — save draft and show last entry
+				m.inputDraft = m.textarea.Value()
+				m.inputHistIdx = len(m.inputHistory) - 1
 				m.textarea.Reset()
 				m.textarea.SetValue(m.inputHistory[m.inputHistIdx])
 				return m, nil
 			}
-			// No history — focus tab bar
+			if m.inputHistIdx > 0 {
+				// Continue cycling backward through history
+				m.inputHistIdx--
+				m.textarea.Reset()
+				m.textarea.SetValue(m.inputHistory[m.inputHistIdx])
+				return m, nil
+			}
+			// At oldest entry or no history — focus tab bar
+			m.inputHistIdx = -1
+			m.inputDraft = ""
 			m.tabBarFocused = true
 			m.textarea.Blur()
 			return m, nil
