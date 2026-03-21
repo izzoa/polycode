@@ -261,7 +261,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Select mode
 					m.currentMode = m.modePickerItems[m.modePickerIdx]
 					if m.onModeChange != nil {
-						m.onModeChange(m.currentMode)
+						go m.onModeChange(m.currentMode)
 					}
 					m.modePickerOpen = false
 					m.textarea.Focus()
@@ -768,7 +768,7 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 				if prompt == "/save" {
 					m.textarea.Reset()
 					if m.onSave != nil {
-						m.onSave()
+						go m.onSave()
 					}
 					return m, nil
 				}

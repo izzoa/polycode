@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -144,14 +145,25 @@ func startTUI(cfg *config.Config) error {
 		log.Printf("Warning: failed to load telemetry stats for router: %v", err)
 	}
 
-	// Parse initial operating mode
+	// Parse initial operating mode (guarded by mutex for goroutine safety)
+	var modeMu sync.Mutex
 	currentMode := routing.ModeBalanced
 	if m, ok := routing.ParseMode(cfg.DefaultMode); ok {
 		currentMode = m
 	}
+	getMode := func() routing.Mode {
+		modeMu.Lock()
+		defer modeMu.Unlock()
+		return currentMode
+	}
+	setMode := func(m routing.Mode) {
+		modeMu.Lock()
+		defer modeMu.Unlock()
+		currentMode = m
+	}
 
 	// Select initial providers based on mode
-	routed := router.SelectProviders(currentMode, healthy, primary.ID())
+	routed := router.SelectProviders(getMode(), healthy, primary.ID())
 	if len(routed) == 0 {
 		routed = healthy // fallback
 	}
@@ -473,7 +485,7 @@ func startTUI(cfg *config.Config) error {
 		if !ok {
 			return
 		}
-		currentMode = m
+		setMode(m)
 		program.Send(tui.ModeChangedMsg{Mode: mode})
 	})
 
@@ -584,10 +596,10 @@ func startTUI(cfg *config.Config) error {
 		}()
 	})
 
-	// Track yolo mode for auto-approve
-	yoloEnabled := false
+	// Track yolo mode for auto-approve (atomic for goroutine safety)
+	var yoloEnabled atomic.Bool
 	model.SetYoloToggleHandler(func(enabled bool) {
-		yoloEnabled = enabled
+		yoloEnabled.Store(enabled)
 	})
 
 	// Set up clear handler to reset conversation state and delete saved session
@@ -629,6 +641,9 @@ func startTUI(cfg *config.Config) error {
 	// Set up the submit handler that bridges TUI → pipeline
 	model.SetSubmitHandler(func(prompt string) {
 		go func() {
+			// Snapshot mode at query start for consistent use throughout.
+			queryMode := getMode()
+
 			// Fire pre-query hook
 			hookMgr.Run(hooks.PreQuery, hooks.HookContext{Prompt: prompt})
 
@@ -664,7 +679,7 @@ func startTUI(cfg *config.Config) error {
 			tools = append(tools, skillReg.ToToolDefinitions()...)
 			// Set reasoning effort based on mode
 			var reasoningEffort provider.ReasoningEffort
-			switch currentMode {
+			switch queryMode {
 			case routing.ModeQuick:
 				reasoningEffort = provider.ReasoningLow
 			case routing.ModeBalanced:
@@ -683,7 +698,7 @@ func startTUI(cfg *config.Config) error {
 			defer cancel()
 
 			// Re-select providers per query (adaptive routing)
-			queryProviders, routingReason := router.SelectProvidersWithReason(currentMode, healthy, primary.ID())
+			queryProviders, routingReason := router.SelectProvidersWithReason(queryMode, healthy, primary.ID())
 			if len(queryProviders) == 0 {
 				queryProviders = healthy
 				routingReason = "fallback: using all healthy providers"
@@ -698,7 +713,7 @@ func startTUI(cfg *config.Config) error {
 
 			// Map routing mode to synthesis depth
 			synthesisMode := consensus.SynthesisBalanced
-			switch currentMode {
+			switch queryMode {
 			case routing.ModeQuick:
 				synthesisMode = consensus.SynthesisQuick
 			case routing.ModeThorough:
@@ -866,7 +881,7 @@ func startTUI(cfg *config.Config) error {
 					}
 
 					// PolicyAsk — check yolo mode, then prompt user
-					if yoloEnabled {
+					if yoloEnabled.Load() {
 						program.Send(tui.ToolCallMsg{
 							ToolName:    "yolo",
 							Description: "Auto-approved: " + description,
@@ -1063,7 +1078,7 @@ func startTUI(cfg *config.Config) error {
 				var trace *config.ConsensusTrace
 				if fanOutResult != nil {
 					trace = &config.ConsensusTrace{
-						RoutingMode:    string(currentMode),
+						RoutingMode:    string(queryMode),
 						RoutingReason:  routingReason,
 						SynthesisModel: primary.ID(),
 					}
