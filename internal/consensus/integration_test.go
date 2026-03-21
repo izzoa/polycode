@@ -40,7 +40,7 @@ func TestPipelineEndToEnd(t *testing.T) {
 
 	providers := []provider.Provider{primary, secondary}
 
-	pipeline := NewPipeline(providers, primary, 5*time.Second, 2, nil)
+	pipeline := NewPipeline(providers, primary, 5*time.Second, 2, nil, SynthesisBalanced)
 
 	messages := []provider.Message{
 		{Role: provider.RoleUser, Content: "What data structure should I use?"},
@@ -83,7 +83,7 @@ func TestPipelineSingleProviderFallback(t *testing.T) {
 	// Only the primary provider
 	providers := []provider.Provider{primary}
 
-	pipeline := NewPipeline(providers, primary, 5*time.Second, 1, nil)
+	pipeline := NewPipeline(providers, primary, 5*time.Second, 1, nil, SynthesisBalanced)
 
 	messages := []provider.Message{
 		{Role: provider.RoleUser, Content: "Hello"},

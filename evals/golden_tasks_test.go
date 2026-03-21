@@ -314,6 +314,7 @@ func TestGoldenTask_ConsensusPipeline(t *testing.T) {
 		30*time.Second,
 		1,
 		tracker,
+		consensus.SynthesisBalanced,
 	)
 
 	msgs := []provider.Message{
@@ -372,6 +373,7 @@ func TestGoldenTask_TimeoutBehavior(t *testing.T) {
 		500*time.Millisecond, // very short timeout
 		2,                    // require both providers
 		tracker,
+		consensus.SynthesisBalanced,
 	)
 
 	msgs := []provider.Message{

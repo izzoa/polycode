@@ -200,7 +200,7 @@ func TestBuildConsensusPrompt_ContainsStructuredMarkers(t *testing.T) {
 		"gpt4":   "Use a tree.",
 	}
 
-	msgs := e.BuildConsensusPrompt("How to store sessions?", responses)
+	msgs := e.BuildConsensusPrompt("How to store sessions?", responses, SynthesisBalanced)
 	content := msgs[0].Content
 
 	markers := []string{
@@ -225,7 +225,7 @@ func TestBuildConsensusPrompt_ContainsSynthesisInstructions(t *testing.T) {
 		"claude": "Response A.",
 	}
 
-	msgs := e.BuildConsensusPrompt("test question", responses)
+	msgs := e.BuildConsensusPrompt("test question", responses, SynthesisBalanced)
 	content := msgs[0].Content
 
 	if !strings.Contains(content, "Analyze all responses and produce a synthesis") {

@@ -453,9 +453,9 @@ func (m Model) renderModePicker() string {
 	lines = append(lines, "")
 
 	descriptions := map[string]string{
-		"quick":    "Single best provider, no consensus",
-		"balanced": "All providers + consensus synthesis",
-		"thorough": "Extended context, deeper analysis",
+		"quick":    "All providers, concise direct answer",
+		"balanced": "All providers, structured synthesis",
+		"thorough": "All providers, deep reasoning + trade-offs",
 	}
 
 	// Mode items (0..2) + yolo toggle (3)

@@ -17,6 +17,7 @@ type Engine struct {
 	primary      provider.Provider
 	timeout      time.Duration
 	minResponses int
+	mode         SynthesisMode
 }
 
 // NewEngine creates a consensus Engine.
@@ -32,9 +33,23 @@ func NewEngine(primary provider.Provider, timeout time.Duration, minResponses in
 	}
 }
 
+// SynthesisMode controls the depth of the consensus synthesis prompt.
+type SynthesisMode string
+
+const (
+	// SynthesisQuick produces a concise, direct answer without structured sections.
+	SynthesisQuick SynthesisMode = "quick"
+	// SynthesisBalanced produces a structured synthesis with confidence, agreements,
+	// minority reports, and evidence sections.
+	SynthesisBalanced SynthesisMode = "balanced"
+	// SynthesisThorough produces deep analysis with extended reasoning, trade-off
+	// analysis, step-by-step verification, and alternative approaches.
+	SynthesisThorough SynthesisMode = "thorough"
+)
+
 // BuildConsensusPrompt constructs the message slice sent to the primary
-// provider for synthesis.
-func (e *Engine) BuildConsensusPrompt(originalPrompt string, responses map[string]string) []provider.Message {
+// provider for synthesis. The mode controls the depth of analysis requested.
+func (e *Engine) BuildConsensusPrompt(originalPrompt string, responses map[string]string, mode SynthesisMode) []provider.Message {
 	var b strings.Builder
 
 	b.WriteString("You are synthesizing responses from multiple AI models to produce the best possible answer.\n\n")
@@ -55,16 +70,41 @@ func (e *Engine) BuildConsensusPrompt(originalPrompt string, responses map[strin
 		b.WriteString("\n---\n\n")
 	}
 
-	b.WriteString("Analyze all responses and produce a synthesis with this structure:\n\n")
-	b.WriteString("## Recommendation\n")
-	b.WriteString("[Your synthesized answer — the best response combining insights from all models]\n\n")
-	b.WriteString("## Confidence: [high/medium/low]\n\n")
-	b.WriteString("## Agreement\n")
-	b.WriteString("[Points where all or most models agree]\n\n")
-	b.WriteString("## Minority Report\n")
-	b.WriteString("[Dissenting views worth considering, with the model name and reasoning. Write \"None — all models agreed\" if there are no disagreements.]\n\n")
-	b.WriteString("## Evidence\n")
-	b.WriteString("[Key facts, code references, or documentation cited by any model]\n")
+	switch mode {
+	case SynthesisQuick:
+		b.WriteString("Produce a concise, direct answer combining the best insights from all models. ")
+		b.WriteString("Do not use structured sections — just give the answer. Be brief and actionable.\n")
+
+	case SynthesisThorough:
+		b.WriteString("Produce a deep, thorough synthesis. Think step by step.\n\n")
+		b.WriteString("## Recommendation\n")
+		b.WriteString("[Your synthesized answer — combine the best insights from all models. Be comprehensive.]\n\n")
+		b.WriteString("## Confidence: [high/medium/low]\n\n")
+		b.WriteString("## Reasoning\n")
+		b.WriteString("[Walk through your reasoning step by step. Explain WHY this is the best answer, not just WHAT it is.]\n\n")
+		b.WriteString("## Agreement\n")
+		b.WriteString("[Points where all or most models agree, with specifics]\n\n")
+		b.WriteString("## Minority Report\n")
+		b.WriteString("[Dissenting views worth considering, with the model name and reasoning. Evaluate whether the dissent has merit. Write \"None — all models agreed\" if there are no disagreements.]\n\n")
+		b.WriteString("## Trade-offs & Alternatives\n")
+		b.WriteString("[Alternative approaches considered by any model. Pros and cons of each. When would you choose differently?]\n\n")
+		b.WriteString("## Verification\n")
+		b.WriteString("[Cross-check key claims against each other. Flag any factual conflicts between models. Note anything that should be verified.]\n\n")
+		b.WriteString("## Evidence\n")
+		b.WriteString("[Key facts, code references, documentation, or examples cited by any model]\n")
+
+	default: // SynthesisBalanced
+		b.WriteString("Analyze all responses and produce a synthesis with this structure:\n\n")
+		b.WriteString("## Recommendation\n")
+		b.WriteString("[Your synthesized answer — the best response combining insights from all models]\n\n")
+		b.WriteString("## Confidence: [high/medium/low]\n\n")
+		b.WriteString("## Agreement\n")
+		b.WriteString("[Points where all or most models agree]\n\n")
+		b.WriteString("## Minority Report\n")
+		b.WriteString("[Dissenting views worth considering, with the model name and reasoning. Write \"None — all models agreed\" if there are no disagreements.]\n\n")
+		b.WriteString("## Evidence\n")
+		b.WriteString("[Key facts, code references, or documentation cited by any model]\n")
+	}
 
 	return []provider.Message{
 		{
@@ -85,7 +125,7 @@ func (e *Engine) Synthesize(
 ) (<-chan provider.StreamChunk, error) {
 	ctx, cancel := context.WithTimeout(ctx, e.timeout)
 
-	messages := e.BuildConsensusPrompt(originalPrompt, responses)
+	messages := e.BuildConsensusPrompt(originalPrompt, responses, e.mode)
 
 	ch, err := e.primary.Query(ctx, messages, opts)
 	if err != nil {

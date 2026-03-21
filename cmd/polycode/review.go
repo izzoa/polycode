@@ -135,6 +135,7 @@ If the changes look good, say so.
 		cfg.Consensus.Timeout,
 		cfg.Consensus.MinResponses,
 		tracker,
+		consensus.SynthesisBalanced,
 	)
 
 	messages := []provider.Message{

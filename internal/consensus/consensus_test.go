@@ -13,7 +13,7 @@ func TestBuildConsensusPrompt(t *testing.T) {
 		"gpt4":   "A binary search tree would work well.",
 	}
 
-	msgs := e.BuildConsensusPrompt("How should I store user sessions?", responses)
+	msgs := e.BuildConsensusPrompt("How should I store user sessions?", responses, SynthesisBalanced)
 
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(msgs))
@@ -50,7 +50,7 @@ func TestBuildConsensusPromptDeterministicOrder(t *testing.T) {
 		"beta":  "Response B",
 	}
 
-	msgs := e.BuildConsensusPrompt("test", responses)
+	msgs := e.BuildConsensusPrompt("test", responses, SynthesisBalanced)
 	content := msgs[0].Content
 
 	// Alpha should appear before beta, beta before zeta

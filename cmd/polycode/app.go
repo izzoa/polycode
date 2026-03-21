@@ -684,12 +684,22 @@ func startTUI(cfg *config.Config) error {
 			}
 			program.Send(tui.QueryStartMsg{QueriedProviders: queriedNames, RoutingReason: routingReason})
 
+			// Map routing mode to synthesis depth
+			synthesisMode := consensus.SynthesisBalanced
+			switch currentMode {
+			case routing.ModeQuick:
+				synthesisMode = consensus.SynthesisQuick
+			case routing.ModeThorough:
+				synthesisMode = consensus.SynthesisThorough
+			}
+
 			queryPipeline := consensus.NewPipeline(
 				queryProviders,
 				primary,
 				cfg.Consensus.Timeout,
 				cfg.Consensus.MinResponses,
 				tracker,
+				synthesisMode,
 			)
 
 			// Run the fan-out + consensus pipeline with full history

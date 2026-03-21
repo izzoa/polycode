@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"sort"
 	"sync"
 	"time"
 
@@ -28,17 +27,12 @@ type ProviderStats struct {
 	FeedbackCount   int     // total feedback events
 }
 
-// calibrationInterval is how many quick-mode queries between full-consensus
-// calibration runs.
-const calibrationInterval = 10
-
 // Router selects providers based on telemetry-derived heuristic scores.
 type Router struct {
-	stats           map[string]ProviderStats
-	statsTime       time.Time
-	telemetryPath   string
-	quickQueryCount int // counts quick-mode queries for periodic calibration
-	mu              sync.RWMutex
+	stats         map[string]ProviderStats
+	statsTime     time.Time
+	telemetryPath string
+	mu            sync.RWMutex
 }
 
 // NewRouter creates a Router that reads telemetry data from the given path.
@@ -184,87 +178,18 @@ func (r *Router) refreshIfStale() {
 	}
 }
 
-// SelectProviders returns a subset of allHealthy providers based on the given
-// mode and heuristic scores.
-//
-//   - quick:    returns only the primary provider
-//   - balanced: returns the primary plus the best-scoring non-primary
-//   - thorough: returns all healthy providers
+// SelectProviders returns all healthy providers regardless of mode.
+// The mode now controls synthesis depth, not provider selection.
 func (r *Router) SelectProviders(mode Mode, allHealthy []provider.Provider, primaryID string) []provider.Provider {
 	providers, _ := r.SelectProvidersWithReason(mode, allHealthy, primaryID)
 	return providers
 }
 
-// SelectProvidersWithReason returns the selected providers along with a
-// human-readable explanation of why they were chosen.
+// SelectProvidersWithReason returns all healthy providers along with a
+// human-readable explanation. All modes query all providers — the mode
+// controls synthesis depth (quick=concise, balanced=structured, thorough=deep).
 func (r *Router) SelectProvidersWithReason(mode Mode, allHealthy []provider.Provider, primaryID string) ([]provider.Provider, string) {
 	r.refreshIfStale()
-
-	switch mode {
-	case ModeQuick:
-		r.mu.Lock()
-		r.quickQueryCount++
-		calibrate := r.quickQueryCount%calibrationInterval == 0
-		r.mu.Unlock()
-
-		if calibrate && len(allHealthy) > 1 {
-			return allHealthy, "quick mode: calibration query (all providers)"
-		}
-
-		for _, p := range allHealthy {
-			if p.ID() == primaryID {
-				return []provider.Provider{p}, fmt.Sprintf("quick mode: primary only (%s)", primaryID)
-			}
-		}
-		if len(allHealthy) > 0 {
-			return []provider.Provider{allHealthy[0]}, fmt.Sprintf("quick mode: fallback (%s)", allHealthy[0].ID())
-		}
-		return nil, "quick mode: no healthy providers"
-
-	case ModeBalanced:
-		var primary provider.Provider
-		var secondaries []provider.Provider
-
-		for _, p := range allHealthy {
-			if p.ID() == primaryID {
-				primary = p
-			} else {
-				secondaries = append(secondaries, p)
-			}
-		}
-
-		result := make([]provider.Provider, 0, 2)
-		if primary != nil {
-			result = append(result, primary)
-		}
-
-		if len(secondaries) > 0 {
-			r.mu.RLock()
-			stats := r.stats
-			r.mu.RUnlock()
-
-			sort.Slice(secondaries, func(i, j int) bool {
-				si := stats[secondaries[i].ID()]
-				sj := stats[secondaries[j].ID()]
-				return r.ScoreProvider(si) > r.ScoreProvider(sj)
-			})
-			best := secondaries[0]
-			result = append(result, best)
-
-			bestScore := r.ScoreProvider(stats[best.ID()])
-			return result, fmt.Sprintf("balanced: %s (primary) + %s (score: %.2f)", primaryID, best.ID(), bestScore)
-		}
-
-		return result, fmt.Sprintf("balanced: %s (primary only, no secondaries)", primaryID)
-
-	case ModeThorough:
-		var names []string
-		for _, p := range allHealthy {
-			names = append(names, p.ID())
-		}
-		return allHealthy, fmt.Sprintf("thorough: all %d providers", len(allHealthy))
-
-	default:
-		return r.SelectProvidersWithReason(ModeBalanced, allHealthy, primaryID)
-	}
+	reason := fmt.Sprintf("%s: all %d providers, %s synthesis", mode, len(allHealthy), mode)
+	return allHealthy, reason
 }

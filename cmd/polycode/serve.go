@@ -59,7 +59,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	tracker := tokens.NewTracker(providerModels, providerLimits)
 
-	pipeline := consensus.NewPipeline(healthy, primary, cfg.Consensus.Timeout, cfg.Consensus.MinResponses, tracker)
+	pipeline := consensus.NewPipeline(healthy, primary, cfg.Consensus.Timeout, cfg.Consensus.MinResponses, tracker, consensus.SynthesisBalanced)
 
 	mux := http.NewServeMux()
 

@@ -302,6 +302,7 @@ func TestReviewBenchmark_ConsensusVsSingleModel(t *testing.T) {
 		10*time.Second,
 		1,
 		tracker,
+		consensus.SynthesisBalanced,
 	)
 
 	// Test against the SQL injection case — only model A would catch it individually,

@@ -27,12 +27,14 @@ type Pipeline struct {
 //   - minResponses is the minimum number of successful fan-out responses
 //     required before synthesis proceeds.
 //   - tracker is optional (may be nil) for token usage tracking and limit enforcement.
+//   - mode controls synthesis depth (quick/balanced/thorough).
 func NewPipeline(
 	providers []provider.Provider,
 	primary provider.Provider,
 	timeout time.Duration,
 	minResponses int,
 	tracker *tokens.TokenTracker,
+	mode SynthesisMode,
 ) *Pipeline {
 	// Derive truncation budget from the primary model's context limit.
 	// Reserve ~25% for the synthesis prompt overhead and output tokens.
@@ -45,8 +47,11 @@ func NewPipeline(
 		}
 	}
 
+	engine := NewEngine(primary, timeout, minResponses)
+	engine.mode = mode
+
 	return &Pipeline{
-		engine:         NewEngine(primary, timeout, minResponses),
+		engine:         engine,
 		providers:      providers,
 		timeout:        timeout,
 		tracker:        tracker,

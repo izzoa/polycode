@@ -189,7 +189,9 @@ func (m *mockProvider) Query(_ context.Context, _ []provider.Message, _ provider
 func (m *mockProvider) Authenticate() error { return nil }
 func (m *mockProvider) Validate() error     { return nil }
 
-func TestSelectProviders_Quick(t *testing.T) {
+// All modes now query all providers — the mode controls synthesis depth, not provider selection.
+
+func TestSelectProviders_AllModesReturnAllProviders(t *testing.T) {
 	r := NewRouter("")
 	_ = r.LoadTelemetryStats()
 
@@ -199,91 +201,25 @@ func TestSelectProviders_Quick(t *testing.T) {
 		&mockProvider{id: "gpt"},
 	}
 
-	result := r.SelectProviders(ModeQuick, providers, "claude")
-	if len(result) != 1 {
-		t.Fatalf("quick mode: got %d providers, want 1", len(result))
-	}
-	if result[0].ID() != "claude" {
-		t.Errorf("quick mode: got provider %q, want claude", result[0].ID())
-	}
-}
-
-func TestSelectProviders_Balanced(t *testing.T) {
-	r := NewRouter("")
-	_ = r.LoadTelemetryStats()
-
-	// Set up stats so gemini scores higher than gpt.
-	r.stats = map[string]ProviderStats{
-		"gemini": {ProviderID: "gemini", AvgLatencyMS: 100, ErrorRate: 0, TotalSuccessful: 50},
-		"gpt":    {ProviderID: "gpt", AvgLatencyMS: 500, ErrorRate: 0.2, TotalSuccessful: 10},
-	}
-
-	providers := []provider.Provider{
-		&mockProvider{id: "claude"},
-		&mockProvider{id: "gemini"},
-		&mockProvider{id: "gpt"},
-	}
-
-	result := r.SelectProviders(ModeBalanced, providers, "claude")
-	if len(result) != 2 {
-		t.Fatalf("balanced mode: got %d providers, want 2", len(result))
-	}
-	if result[0].ID() != "claude" {
-		t.Errorf("balanced mode: first provider = %q, want claude", result[0].ID())
-	}
-	if result[1].ID() != "gemini" {
-		t.Errorf("balanced mode: second provider = %q, want gemini (best scoring)", result[1].ID())
+	for _, mode := range []Mode{ModeQuick, ModeBalanced, ModeThorough} {
+		result := r.SelectProviders(mode, providers, "claude")
+		if len(result) != 3 {
+			t.Errorf("%s mode: got %d providers, want 3", mode, len(result))
+		}
 	}
 }
 
-func TestSelectProviders_Thorough(t *testing.T) {
+func TestSelectProviders_ReasonIncludesMode(t *testing.T) {
 	r := NewRouter("")
 	_ = r.LoadTelemetryStats()
 
 	providers := []provider.Provider{
 		&mockProvider{id: "claude"},
 		&mockProvider{id: "gemini"},
-		&mockProvider{id: "gpt"},
 	}
 
-	result := r.SelectProviders(ModeThorough, providers, "claude")
-	if len(result) != 3 {
-		t.Fatalf("thorough mode: got %d providers, want 3", len(result))
-	}
-}
-
-func TestSelectProviders_Quick_PrimaryNotHealthy(t *testing.T) {
-	r := NewRouter("")
-	_ = r.LoadTelemetryStats()
-
-	providers := []provider.Provider{
-		&mockProvider{id: "gemini"},
-		&mockProvider{id: "gpt"},
-	}
-
-	result := r.SelectProviders(ModeQuick, providers, "claude")
-	if len(result) != 1 {
-		t.Fatalf("quick mode (primary missing): got %d providers, want 1", len(result))
-	}
-	// Falls back to first available.
-	if result[0].ID() != "gemini" {
-		t.Errorf("quick mode (primary missing): got provider %q, want gemini", result[0].ID())
-	}
-}
-
-func TestSelectProviders_Balanced_OnlyPrimary(t *testing.T) {
-	r := NewRouter("")
-	_ = r.LoadTelemetryStats()
-
-	providers := []provider.Provider{
-		&mockProvider{id: "claude"},
-	}
-
-	result := r.SelectProviders(ModeBalanced, providers, "claude")
-	if len(result) != 1 {
-		t.Fatalf("balanced mode (only primary): got %d providers, want 1", len(result))
-	}
-	if result[0].ID() != "claude" {
-		t.Errorf("balanced mode: got provider %q, want claude", result[0].ID())
+	_, reason := r.SelectProvidersWithReason(ModeQuick, providers, "claude")
+	if reason == "" {
+		t.Error("expected non-empty routing reason")
 	}
 }
