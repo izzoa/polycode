@@ -149,20 +149,6 @@ func (m *Model) nextWizardStep() {
 	m.prepareStepUI()
 }
 
-// prevWizardStep moves to the previous applicable wizard step.
-func (m *Model) prevWizardStep() {
-	for {
-		if m.wizardStep == stepType {
-			return // can't go before the first step
-		}
-		m.wizardStep--
-		if m.shouldShowStep(m.wizardStep) {
-			break
-		}
-	}
-	m.prepareStepUI()
-}
-
 // shouldShowStep returns whether the given step should be displayed based on
 // the current wizard data.
 func (m *Model) shouldShowStep(step wizardStep) bool {

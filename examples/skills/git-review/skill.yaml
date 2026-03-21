@@ -1,0 +1,32 @@
+name: git-review
+version: "1.0"
+description: Automated git diff review using multi-model consensus
+command: review
+tools:
+  - name: git_diff
+    description: Get the current git diff (staged or unstaged changes)
+    parameters:
+      type: object
+      properties:
+        staged:
+          type: boolean
+          description: If true, show only staged changes
+        file:
+          type: string
+          description: Optional file path to limit diff scope
+    handler: |
+      cd "${POLYCODE_WORK_DIR:-.}"
+      ARGS=$(echo "$POLYCODE_TOOL_ARGS" | python3 -c "import sys,json; d=json.load(sys.stdin); print('--staged' if d.get('staged') else '', d.get('file',''))" 2>/dev/null || echo "")
+      git diff $ARGS 2>&1 || echo "Not a git repository or no changes"
+  - name: git_log
+    description: Get recent git commit history
+    parameters:
+      type: object
+      properties:
+        count:
+          type: integer
+          description: Number of commits to show (default 10)
+    handler: |
+      cd "${POLYCODE_WORK_DIR:-.}"
+      COUNT=$(echo "$POLYCODE_TOOL_ARGS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',10))" 2>/dev/null || echo "10")
+      git log --oneline -n "$COUNT" 2>&1 || echo "Not a git repository"

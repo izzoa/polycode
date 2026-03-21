@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-03-21
+
+### Added
+- **Anthropic & Gemini tool support**: Both providers now handle `tool_use`/`tool_result` content blocks (Anthropic) and `functionCall`/`functionResponse` parts (Gemini). Either can serve as the primary model for tool execution.
+- **Response truncation**: Fan-out responses are automatically truncated to fit the primary model's context window before synthesis, preventing context overflow with large multi-provider responses.
+- **Consensus provenance display**: `ParseConsensusAnalysis()` output now wired into the TUI provenance panel (toggle with `p`). Shows confidence, agreements, minority reports, and evidence extracted from synthesis.
+- **Verification after tool execution**: If a `verify_command` is configured or auto-detected (Go/Node/Rust/Python/Make), runs verification after tool loop and streams pass/fail to TUI.
+- **Input history**: Up/Down arrow keys cycle through previously submitted prompts. Saves draft when entering history browsing.
+- **File diff preview**: File write confirmations now show a unified diff (`+`/`-` lines) for existing files instead of raw content preview. New files still show content preview.
+- **Destructive command hardening**: Added detection for pipe-to-shell (`|sh`, `|bash`), `rm-rf` (no-space), clobber (`>|`), `curl|`/`wget|` piping, and `/dev/sd*`, `/sys/`, `/proc/` paths.
+- **Path validation**: `file_read` and `file_write` reject relative paths that escape the working directory via traversal attacks.
+- **OAuth token auto-refresh**: Expired OAuth tokens are automatically refreshed using stored refresh tokens before queries fail with 401.
+- **Cost tracking**: Per-provider estimated cost displayed in tab bar alongside token counts, calculated from litellm pricing data (`input_cost_per_token`, `output_cost_per_token`).
+- **Router observability**: `SelectProvidersWithReason()` returns human-readable routing explanations shown in the provenance panel (e.g., "balanced: claude (primary) + gpt (score: 0.42)").
+- **Per-provider latency telemetry**: Fan-out results now include wall-clock latency per provider, logged to telemetry for router calibration.
+- **Multi-session management**: `/sessions` lists all saved sessions. `/name <name>` names the current session. `polycode session list|show|delete` CLI commands. Sessions support user-assigned names.
+- **Replayable consensus traces**: Each exchange persists a `ConsensusTrace` with routing mode/reason, provider list, per-provider latencies, token usage, errors, and skipped providers. Available in session exports.
+- **Context auto-summarization**: When the primary model reaches 80% context usage, early conversation turns are compressed into a dense summary preserving the last 4 messages.
+- **Canonical skills**: Three example skills in `examples/skills/`: `git-review` (automated diff review), `test-runner` (detect and run project tests), `security-audit` (scan for secrets, vulnerable deps, injection patterns).
+- **Example files**: `examples/permissions.yaml`, `examples/instructions.md`, and `examples/skill-manifest.yaml` templates for new users.
+- **OpenAI-compat token tracking**: `stream_options: {include_usage: true}` added to OpenAI-compatible provider, enabling token tracking for Ollama, vLLM, OpenRouter, etc.
+
+### Fixed
+- **Goroutine leak in consensus synthesis**: Channel sends in `Synthesize()` now use `select` with context cancellation. Same fix applied to all 5 channel sends in the tool loop.
+- **Atomic session/checkpoint writes**: `SaveSession()` and `SaveCheckpoint()` now write to temp files then atomically rename, preventing corruption from crashes during write.
+
+### Changed
+- **Code modernization**: `interface{}` → `any` throughout (67 replacements across 11 files). `sb.WriteString(fmt.Sprintf(...))` → `fmt.Fprintf(&sb, ...)`. `for i := 0; i < N; i++` → `for i := range N`. `HasPrefix + TrimPrefix` → `CutPrefix`. `maps.Copy` replaces manual loops. Dead code removed (`var _ = json.Marshal`, unused methods `hasContent`, `prevWizardStep`). Silent `_ = SaveSession(...)` calls replaced with logged errors.
+
 ## [1.9.0] - 2026-03-20
 
 ### Added

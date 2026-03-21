@@ -37,7 +37,8 @@ func checkpointPath(jobID string) string {
 	return filepath.Join(jobsDir(), jobID+".json")
 }
 
-// SaveCheckpoint writes a checkpoint to disk as JSON.
+// SaveCheckpoint writes a checkpoint to disk as JSON atomically using a
+// temp file + rename to prevent corruption from crashes during write.
 func SaveCheckpoint(jobID string, checkpoint *JobCheckpoint) error {
 	dir := jobsDir()
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -54,9 +55,27 @@ func SaveCheckpoint(jobID string, checkpoint *JobCheckpoint) error {
 		return fmt.Errorf("marshaling checkpoint: %w", err)
 	}
 
-	path := checkpointPath(jobID)
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		return fmt.Errorf("writing checkpoint: %w", err)
+	finalPath := checkpointPath(jobID)
+
+	tmp, err := os.CreateTemp(dir, ".checkpoint-*.tmp")
+	if err != nil {
+		return fmt.Errorf("creating temp checkpoint file: %w", err)
+	}
+	tmpName := tmp.Name()
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("writing temp checkpoint file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("closing temp checkpoint file: %w", err)
+	}
+
+	if err := os.Rename(tmpName, finalPath); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("renaming temp checkpoint file: %w", err)
 	}
 
 	return nil

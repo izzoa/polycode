@@ -25,7 +25,7 @@ type Manifest struct {
 type ToolManifest struct {
 	Name        string                 `yaml:"name"`
 	Description string                 `yaml:"description"`
-	Parameters  map[string]interface{} `yaml:"parameters,omitempty"` // JSON Schema object
+	Parameters  map[string]any `yaml:"parameters,omitempty"` // JSON Schema object
 	Handler     string                 `yaml:"handler"`             // shell command to execute
 }
 

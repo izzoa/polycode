@@ -1,0 +1,42 @@
+name: test-runner
+version: "1.0"
+description: Detect and run the project's test suite
+command: test
+tools:
+  - name: detect_tests
+    description: Detect the project's test framework and list test files
+    parameters:
+      type: object
+      properties: {}
+    handler: |
+      cd "${POLYCODE_WORK_DIR:-.}"
+      echo "=== Project Detection ==="
+      if [ -f go.mod ]; then echo "Framework: Go"; echo "Command: go test ./..."; find . -name '*_test.go' -not -path './vendor/*' | head -20; fi
+      if [ -f package.json ]; then echo "Framework: Node.js"; cat package.json | python3 -c "import sys,json; s=json.load(sys.stdin).get('scripts',{}); print('Command:', s.get('test','npm test'))" 2>/dev/null; fi
+      if [ -f Cargo.toml ]; then echo "Framework: Rust"; echo "Command: cargo test"; fi
+      if [ -f pyproject.toml ] || [ -f requirements.txt ]; then echo "Framework: Python"; echo "Command: python -m pytest"; find . -name 'test_*.py' -o -name '*_test.py' | head -20; fi
+      if [ -f Makefile ]; then echo "Makefile targets:"; grep -E '^test' Makefile | head -5; fi
+  - name: run_tests
+    description: Execute the project's test suite
+    parameters:
+      type: object
+      properties:
+        command:
+          type: string
+          description: Test command to run (auto-detected if empty)
+        verbose:
+          type: boolean
+          description: Run tests in verbose mode
+    handler: |
+      cd "${POLYCODE_WORK_DIR:-.}"
+      CMD=$(echo "$POLYCODE_TOOL_ARGS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('command',''))" 2>/dev/null || echo "")
+      VERBOSE=$(echo "$POLYCODE_TOOL_ARGS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('verbose',False))" 2>/dev/null || echo "")
+      if [ -z "$CMD" ]; then
+        if [ -f go.mod ]; then CMD="go test ./..."; fi
+        if [ -f package.json ]; then CMD="npm test"; fi
+        if [ -f Cargo.toml ]; then CMD="cargo test"; fi
+        if [ -f pyproject.toml ] || [ -f requirements.txt ]; then CMD="python -m pytest"; fi
+      fi
+      if [ "$VERBOSE" = "True" ]; then CMD="$CMD -v"; fi
+      echo "Running: $CMD"
+      eval "$CMD" 2>&1

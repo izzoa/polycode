@@ -21,7 +21,7 @@ import (
 type MCPTool struct {
 	Name        string
 	Description string
-	InputSchema map[string]interface{}
+	InputSchema map[string]any
 	ServerName  string // which server provides this tool
 }
 
@@ -49,7 +49,7 @@ type jsonrpcRequest struct {
 	JSONRPC string      `json:"jsonrpc"`
 	ID      int64       `json:"id"`
 	Method  string      `json:"method"`
-	Params  interface{} `json:"params,omitempty"`
+	Params  any `json:"params,omitempty"`
 }
 
 // jsonrpcResponse is a JSON-RPC 2.0 response.
@@ -70,7 +70,7 @@ type toolsListResult struct {
 	Tools []struct {
 		Name        string                 `json:"name"`
 		Description string                 `json:"description"`
-		InputSchema map[string]interface{} `json:"inputSchema"`
+		InputSchema map[string]any `json:"inputSchema"`
 	} `json:"tools"`
 }
 
@@ -156,10 +156,10 @@ func (c *MCPClient) connectStdio(ctx context.Context, cfg config.MCPServerConfig
 	}
 
 	// Send initialize request.
-	initParams := map[string]interface{}{
+	initParams := map[string]any{
 		"protocolVersion": "2024-11-05",
-		"capabilities":    map[string]interface{}{},
-		"clientInfo": map[string]interface{}{
+		"capabilities":    map[string]any{},
+		"clientInfo": map[string]any{
 			"name":    "polycode",
 			"version": "1.0.0",
 		},
@@ -174,7 +174,7 @@ func (c *MCPClient) connectStdio(ctx context.Context, cfg config.MCPServerConfig
 	// Send initialized notification (no response expected, but we send it as
 	// a notification — id omitted). For simplicity we send it as a request
 	// that we don't wait a response for. MCP spec says this is a notification.
-	notification := map[string]interface{}{
+	notification := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "notifications/initialized",
 	}
@@ -193,7 +193,7 @@ func (c *MCPClient) connectStdio(ctx context.Context, cfg config.MCPServerConfig
 
 // discoverTools sends tools/list to a server and returns the discovered tools.
 func (c *MCPClient) discoverTools(_ context.Context, serverName string, conn *serverConn) ([]MCPTool, error) {
-	resp, err := conn.sendRequest("tools/list", map[string]interface{}{})
+	resp, err := conn.sendRequest("tools/list", map[string]any{})
 	if err != nil {
 		return nil, err
 	}
@@ -235,11 +235,11 @@ func (c *MCPClient) CallTool(_ context.Context, serverName, toolName string, arg
 		return "", fmt.Errorf("unknown MCP server %q", serverName)
 	}
 
-	params := map[string]interface{}{
+	params := map[string]any{
 		"name": toolName,
 	}
 	if args != nil {
-		var a interface{}
+		var a any
 		if err := json.Unmarshal(args, &a); err != nil {
 			return "", fmt.Errorf("invalid tool arguments: %w", err)
 		}
@@ -306,7 +306,7 @@ func (c *MCPClient) ToToolDefinitions() []provider.ToolDefinition {
 }
 
 // sendRequest sends a JSON-RPC request and waits for the response.
-func (sc *serverConn) sendRequest(method string, params interface{}) (json.RawMessage, error) {
+func (sc *serverConn) sendRequest(method string, params any) (json.RawMessage, error) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 

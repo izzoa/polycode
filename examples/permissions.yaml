@@ -1,0 +1,17 @@
+# Polycode permission policies
+# Controls which tool actions require user confirmation.
+#
+# Policies: allow, deny, ask (default)
+#   allow — auto-approve without prompting
+#   deny  — always reject
+#   ask   — prompt the user each time
+
+# File operations
+file_read: allow      # reading files is safe
+file_write: ask       # always confirm before writing
+
+# Shell execution
+shell_exec: ask       # always confirm shell commands
+
+# MCP tools (if connected)
+# mcp_server_tool: allow

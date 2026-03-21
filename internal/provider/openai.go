@@ -114,7 +114,7 @@ type openaiTool struct {
 type openaiFunction struct {
 	Name        string      `json:"name"`
 	Description string      `json:"description"`
-	Parameters  interface{} `json:"parameters"`
+	Parameters  any `json:"parameters"`
 }
 
 // openaiSSEChunk represents a chunk in the OpenAI streaming response.

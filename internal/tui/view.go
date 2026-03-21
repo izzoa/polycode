@@ -151,6 +151,11 @@ func (m Model) renderProvenance() string {
 	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("63")).Render("Consensus Provenance")
 	lines = append(lines, title, "")
 
+	// Routing decision
+	if m.routingReason != "" {
+		lines = append(lines, m.styles.Dimmed.Render("Routing: "+m.routingReason), "")
+	}
+
 	// Confidence
 	if m.consensusConfidence != "" {
 		var confStyle lipgloss.Style
@@ -397,9 +402,12 @@ func (m Model) renderTabBar() string {
 			label += "★"
 		}
 
-		// Compact token usage
+		// Compact token usage + cost
 		if td, ok := m.tokenUsage[panel.Name]; ok && td.HasData {
 			label += " " + td.Used
+			if td.Cost != "" {
+				label += " " + td.Cost
+			}
 		}
 
 		if m.activeTab == i+1 {
@@ -501,11 +509,3 @@ func (m Model) renderInput() string {
 	return style.Render(fmt.Sprintf("%s\n%s", label, input))
 }
 
-func (m Model) hasContent() bool {
-	for _, p := range m.panels {
-		if p.Content.Len() > 0 {
-			return true
-		}
-	}
-	return false
-}

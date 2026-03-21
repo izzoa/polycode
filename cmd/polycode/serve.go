@@ -154,7 +154,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			return
 		}
 
-		providerStatus := make([]map[string]interface{}, 0)
+		providerStatus := make([]map[string]any, 0)
 		for _, p := range registry.Providers() {
 			status := "healthy"
 			if err := p.Validate(); err != nil {
@@ -163,7 +163,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			isPrimary := p.ID() == primary.ID()
 			usage := tracker.Get(p.ID())
 
-			providerStatus = append(providerStatus, map[string]interface{}{
+			providerStatus = append(providerStatus, map[string]any{
 				"id":            p.ID(),
 				"primary":       isPrimary,
 				"status":        status,
@@ -173,7 +173,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			})
 		}
 
-		writeJSON(w, http.StatusOK, map[string]interface{}{
+		writeJSON(w, http.StatusOK, map[string]any{
 			"version":   version,
 			"mode":      cfg.DefaultMode,
 			"providers": providerStatus,
@@ -253,7 +253,7 @@ func isLocalhostOrigin(origin string) bool {
 	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
-func writeJSON(w http.ResponseWriter, status int, data interface{}) {
+func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)

@@ -15,7 +15,7 @@ import (
 
 // mockMCPServer simulates an MCP stdio server over a net.Conn pair.
 // It reads JSON-RPC requests and responds with canned data.
-func mockMCPServer(t *testing.T, serverConn net.Conn, tools []map[string]interface{}) {
+func mockMCPServer(t *testing.T, serverConn net.Conn, tools []map[string]any) {
 	t.Helper()
 	defer serverConn.Close()
 
@@ -38,7 +38,7 @@ func mockMCPServer(t *testing.T, serverConn net.Conn, tools []map[string]interfa
 				continue
 			}
 
-			var req map[string]interface{}
+			var req map[string]any
 			if err := json.Unmarshal([]byte(line), &req); err != nil {
 				t.Logf("mock server: failed to parse request: %v", err)
 				continue
@@ -54,26 +54,26 @@ func mockMCPServer(t *testing.T, serverConn net.Conn, tools []map[string]interfa
 
 			idNum, _ := id.(float64)
 
-			var result interface{}
+			var result any
 			switch method {
 			case "initialize":
-				result = map[string]interface{}{
+				result = map[string]any{
 					"protocolVersion": "2024-11-05",
-					"capabilities":    map[string]interface{}{},
-					"serverInfo": map[string]interface{}{
+					"capabilities":    map[string]any{},
+					"serverInfo": map[string]any{
 						"name":    "mock-server",
 						"version": "1.0.0",
 					},
 				}
 			case "tools/list":
-				result = map[string]interface{}{
+				result = map[string]any{
 					"tools": tools,
 				}
 			case "tools/call":
-				params, _ := req["params"].(map[string]interface{})
+				params, _ := req["params"].(map[string]any)
 				toolName, _ := params["name"].(string)
-				result = map[string]interface{}{
-					"content": []map[string]interface{}{
+				result = map[string]any{
+					"content": []map[string]any{
 						{
 							"type": "text",
 							"text": fmt.Sprintf("result from %s", toolName),
@@ -81,10 +81,10 @@ func mockMCPServer(t *testing.T, serverConn net.Conn, tools []map[string]interfa
 					},
 				}
 			default:
-				resp := map[string]interface{}{
+				resp := map[string]any{
 					"jsonrpc": "2.0",
 					"id":      idNum,
-					"error": map[string]interface{}{
+					"error": map[string]any{
 						"code":    -32601,
 						"message": "method not found",
 					},
@@ -95,7 +95,7 @@ func mockMCPServer(t *testing.T, serverConn net.Conn, tools []map[string]interfa
 				continue
 			}
 
-			resp := map[string]interface{}{
+			resp := map[string]any{
 				"jsonrpc": "2.0",
 				"id":      idNum,
 				"result":  result,
@@ -109,7 +109,7 @@ func mockMCPServer(t *testing.T, serverConn net.Conn, tools []map[string]interfa
 
 // newTestClient creates an MCPClient with a mock server connected via pipes.
 // It returns the client and a cleanup function.
-func newTestClient(t *testing.T, serverName string, tools []map[string]interface{}) (*MCPClient, func()) {
+func newTestClient(t *testing.T, serverName string, tools []map[string]any) (*MCPClient, func()) {
 	t.Helper()
 
 	// Use a net.Pipe to simulate stdin/stdout of a subprocess.
@@ -170,7 +170,7 @@ func newTestClient(t *testing.T, serverName string, tools []map[string]interface
 					continue
 				}
 
-				var req map[string]interface{}
+				var req map[string]any
 				if err := json.Unmarshal([]byte(line), &req); err != nil {
 					t.Logf("mock server: failed to parse: %v", err)
 					continue
@@ -184,26 +184,26 @@ func newTestClient(t *testing.T, serverName string, tools []map[string]interface
 				}
 				idNum, _ := id.(float64)
 
-				var result interface{}
+				var result any
 				switch method {
 				case "initialize":
-					result = map[string]interface{}{
+					result = map[string]any{
 						"protocolVersion": "2024-11-05",
-						"capabilities":    map[string]interface{}{},
-						"serverInfo": map[string]interface{}{
+						"capabilities":    map[string]any{},
+						"serverInfo": map[string]any{
 							"name":    "mock-server",
 							"version": "1.0.0",
 						},
 					}
 				case "tools/list":
-					result = map[string]interface{}{
+					result = map[string]any{
 						"tools": tools,
 					}
 				case "tools/call":
-					params, _ := req["params"].(map[string]interface{})
+					params, _ := req["params"].(map[string]any)
 					toolName, _ := params["name"].(string)
-					result = map[string]interface{}{
-						"content": []map[string]interface{}{
+					result = map[string]any{
+						"content": []map[string]any{
 							{
 								"type": "text",
 								"text": fmt.Sprintf("result from %s", toolName),
@@ -211,10 +211,10 @@ func newTestClient(t *testing.T, serverName string, tools []map[string]interface
 						},
 					}
 				default:
-					resp := map[string]interface{}{
+					resp := map[string]any{
 						"jsonrpc": "2.0",
 						"id":      idNum,
-						"error": map[string]interface{}{
+						"error": map[string]any{
 							"code":    -32601,
 							"message": "method not found",
 						},
@@ -225,7 +225,7 @@ func newTestClient(t *testing.T, serverName string, tools []map[string]interface
 					continue
 				}
 
-				resp := map[string]interface{}{
+				resp := map[string]any{
 					"jsonrpc": "2.0",
 					"id":      idNum,
 					"result":  result,
@@ -264,14 +264,14 @@ func newLineScanner(r io.Reader) *bufio.Scanner {
 }
 
 func TestDiscoverTools(t *testing.T) {
-	mockTools := []map[string]interface{}{
+	mockTools := []map[string]any{
 		{
 			"name":        "read_file",
 			"description": "Read a file from the filesystem",
-			"inputSchema": map[string]interface{}{
+			"inputSchema": map[string]any{
 				"type": "object",
-				"properties": map[string]interface{}{
-					"path": map[string]interface{}{
+				"properties": map[string]any{
+					"path": map[string]any{
 						"type":        "string",
 						"description": "Path to the file",
 					},
@@ -282,14 +282,14 @@ func TestDiscoverTools(t *testing.T) {
 		{
 			"name":        "write_file",
 			"description": "Write content to a file",
-			"inputSchema": map[string]interface{}{
+			"inputSchema": map[string]any{
 				"type": "object",
-				"properties": map[string]interface{}{
-					"path": map[string]interface{}{
+				"properties": map[string]any{
+					"path": map[string]any{
 						"type":        "string",
 						"description": "Path to the file",
 					},
-					"content": map[string]interface{}{
+					"content": map[string]any{
 						"type":        "string",
 						"description": "Content to write",
 					},
@@ -310,10 +310,10 @@ func TestDiscoverTools(t *testing.T) {
 	conn := client.servers["filesystem"]
 
 	// Send initialize.
-	initParams := map[string]interface{}{
+	initParams := map[string]any{
 		"protocolVersion": "2024-11-05",
-		"capabilities":    map[string]interface{}{},
-		"clientInfo": map[string]interface{}{
+		"capabilities":    map[string]any{},
+		"clientInfo": map[string]any{
 			"name":    "polycode",
 			"version": "1.0.0",
 		},
@@ -376,13 +376,13 @@ func TestDiscoverTools(t *testing.T) {
 }
 
 func TestCallTool(t *testing.T) {
-	mockTools := []map[string]interface{}{
+	mockTools := []map[string]any{
 		{
 			"name":        "greet",
 			"description": "Say hello",
-			"inputSchema": map[string]interface{}{
+			"inputSchema": map[string]any{
 				"type":       "object",
-				"properties": map[string]interface{}{},
+				"properties": map[string]any{},
 			},
 		},
 	}
@@ -393,10 +393,10 @@ func TestCallTool(t *testing.T) {
 	conn := client.servers["greeter"]
 
 	// Initialize first.
-	initParams := map[string]interface{}{
+	initParams := map[string]any{
 		"protocolVersion": "2024-11-05",
-		"capabilities":    map[string]interface{}{},
-		"clientInfo": map[string]interface{}{
+		"capabilities":    map[string]any{},
+		"clientInfo": map[string]any{
 			"name":    "polycode",
 			"version": "1.0.0",
 		},

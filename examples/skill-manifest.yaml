@@ -1,0 +1,29 @@
+# Example skill manifest
+# Place in a directory and install with: polycode skill install <path>
+
+name: my-skill                    # required — unique skill name
+version: "1.0"                    # optional — semver
+description: "Brief description"  # required — shown in /skill list
+command: mycommand                # optional — registers /mycommand slash command
+
+# Tools the skill provides to the model
+tools:
+  - name: my_tool
+    description: "What this tool does"
+    parameters:
+      type: object
+      properties:
+        input:
+          type: string
+          description: "Input parameter description"
+      required:
+        - input
+    handler: |
+      # Shell script that runs when the model calls this tool.
+      # Tool arguments are available as:
+      #   - stdin (JSON string)
+      #   - $POLYCODE_TOOL_ARGS env var (same JSON)
+      echo "Tool executed with args: $POLYCODE_TOOL_ARGS"
+
+# Optional: create system_prompt.md alongside this file to add
+# context to every conversation when this skill is loaded.

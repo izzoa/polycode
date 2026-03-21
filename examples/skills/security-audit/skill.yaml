@@ -1,0 +1,58 @@
+name: security-audit
+version: "1.0"
+description: Scan for common vulnerability patterns in the codebase
+command: audit
+tools:
+  - name: scan_secrets
+    description: Scan for hardcoded secrets, API keys, and credentials
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Directory to scan (default current dir)
+    handler: |
+      DIR=$(echo "$POLYCODE_TOOL_ARGS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('path','.'))" 2>/dev/null || echo ".")
+      cd "$DIR"
+      echo "=== Secret Patterns ==="
+      grep -rn --include='*.go' --include='*.py' --include='*.js' --include='*.ts' --include='*.yaml' --include='*.yml' --include='*.json' --include='*.env' \
+        -E '(password|secret|api_key|apikey|token|private_key)\s*[:=]' . 2>/dev/null | grep -iv 'test\|mock\|example\|fixture' | head -30
+      echo ""
+      echo "=== .env Files ==="
+      find . -name '.env*' -not -path './node_modules/*' -not -path './.git/*' 2>/dev/null | head -10
+      echo ""
+      echo "=== Private Keys ==="
+      find . -name '*.pem' -o -name '*.key' -o -name 'id_rsa*' 2>/dev/null | grep -v node_modules | head -10
+  - name: scan_dependencies
+    description: Check for known vulnerable dependencies
+    parameters:
+      type: object
+      properties: {}
+    handler: |
+      cd "${POLYCODE_WORK_DIR:-.}"
+      echo "=== Dependency Audit ==="
+      if [ -f go.mod ]; then echo "Go modules:"; go list -m all 2>/dev/null | head -20; fi
+      if [ -f package-lock.json ]; then echo "npm audit:"; npm audit --json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); v=d.get('metadata',{}).get('vulnerabilities',{}); print(f'Critical: {v.get(\"critical\",0)}, High: {v.get(\"high\",0)}, Moderate: {v.get(\"moderate\",0)}')" 2>/dev/null || echo "npm audit not available"; fi
+      if [ -f Cargo.lock ]; then echo "Rust:"; cargo audit 2>/dev/null | head -20 || echo "cargo-audit not installed"; fi
+  - name: scan_injection
+    description: Scan for potential injection vulnerabilities (SQL, command, XSS)
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Directory to scan
+    handler: |
+      DIR=$(echo "$POLYCODE_TOOL_ARGS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('path','.'))" 2>/dev/null || echo ".")
+      cd "$DIR"
+      echo "=== SQL Injection Patterns ==="
+      grep -rn --include='*.go' --include='*.py' --include='*.js' --include='*.ts' \
+        -E '(fmt\.Sprintf|f"|%s|%v).*([Ss][Ee][Ll][Ee][Cc][Tt]|[Ii][Nn][Ss][Ee][Rr][Tt]|[Uu][Pp][Dd][Aa][Tt][Ee]|[Dd][Ee][Ll][Ee][Tt][Ee])' . 2>/dev/null | head -20
+      echo ""
+      echo "=== Command Injection Patterns ==="
+      grep -rn --include='*.go' --include='*.py' --include='*.js' --include='*.ts' \
+        -E '(exec\.Command|os\.system|subprocess|child_process).*(\+|fmt|format|%)' . 2>/dev/null | head -20
+      echo ""
+      echo "=== Unescaped Output (XSS) ==="
+      grep -rn --include='*.html' --include='*.jsx' --include='*.tsx' \
+        -E 'dangerouslySetInnerHTML|v-html|\{\{.*\}\}' . 2>/dev/null | head -20

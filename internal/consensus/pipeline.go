@@ -13,10 +13,11 @@ import (
 // Pipeline orchestrates the full consensus workflow: fan-out query to all
 // providers, threshold check, and synthesis via the primary provider.
 type Pipeline struct {
-	engine    *Engine
-	providers []provider.Provider
-	timeout   time.Duration
-	tracker   *tokens.TokenTracker
+	engine       *Engine
+	providers    []provider.Provider
+	timeout      time.Duration
+	tracker      *tokens.TokenTracker
+	truncateBudget int // max total chars for fan-out responses; 0 = no truncation
 }
 
 // NewPipeline creates a Pipeline.
@@ -33,11 +34,23 @@ func NewPipeline(
 	minResponses int,
 	tracker *tokens.TokenTracker,
 ) *Pipeline {
+	// Derive truncation budget from the primary model's context limit.
+	// Reserve ~25% for the synthesis prompt overhead and output tokens.
+	var truncateBudget int
+	if tracker != nil {
+		pu := tracker.Get(primary.ID())
+		if pu.Limit > 0 {
+			// Rough chars-per-token estimate: ~4 chars/token.
+			truncateBudget = (pu.Limit * 3 / 4) * 4
+		}
+	}
+
 	return &Pipeline{
-		engine:    NewEngine(primary, timeout, minResponses),
-		providers: providers,
-		timeout:   timeout,
-		tracker:   tracker,
+		engine:         NewEngine(primary, timeout, minResponses),
+		providers:      providers,
+		timeout:        timeout,
+		tracker:        tracker,
+		truncateBudget: truncateBudget,
 	}
 }
 
@@ -66,6 +79,11 @@ func (p *Pipeline) Run(
 
 	// Phase 1: fan-out.
 	fanOutResult := FanOut(ctx, p.providers, messages, opts, p.timeout, p.tracker)
+
+	// Truncate fan-out responses to fit within the primary model's context.
+	if p.truncateBudget > 0 && len(fanOutResult.Responses) > 0 {
+		fanOutResult.Responses = TruncateResponses(fanOutResult.Responses, p.truncateBudget)
+	}
 
 	// Check minimum response threshold.
 	if len(fanOutResult.Responses) < p.engine.minResponses {

@@ -20,12 +20,14 @@ const DefaultMetadataURL = "https://raw.githubusercontent.com/BerriAI/litellm/ma
 
 // ModelInfo holds parsed metadata for a single model from the litellm database.
 type ModelInfo struct {
-	MaxInputTokens          int  `json:"max_input_tokens"`
-	MaxOutputTokens         int  `json:"max_output_tokens"`
-	SupportsFunctionCalling bool `json:"supports_function_calling"`
-	SupportsVision          bool `json:"supports_vision"`
-	SupportsReasoning       bool `json:"supports_reasoning"`
-	SupportsResponseSchema  bool `json:"supports_response_schema"`
+	MaxInputTokens          int     `json:"max_input_tokens"`
+	MaxOutputTokens         int     `json:"max_output_tokens"`
+	InputCostPerToken       float64 `json:"input_cost_per_token"`
+	OutputCostPerToken      float64 `json:"output_cost_per_token"`
+	SupportsFunctionCalling bool    `json:"supports_function_calling"`
+	SupportsVision          bool    `json:"supports_vision"`
+	SupportsReasoning       bool    `json:"supports_reasoning"`
+	SupportsResponseSchema  bool    `json:"supports_response_schema"`
 }
 
 // FetchMetadata fetches the litellm model metadata JSON from the given URL.
@@ -220,6 +222,16 @@ func (s *MetadataStore) LimitForModel(model string, providerType string, configO
 	}
 
 	return 0
+}
+
+// CostForTokens returns the estimated cost in USD for the given input/output
+// token counts. Returns 0 if pricing data is unavailable.
+func (s *MetadataStore) CostForTokens(model string, providerType string, inputTokens, outputTokens int) float64 {
+	info, ok := s.Lookup(model, providerType)
+	if !ok {
+		return 0
+	}
+	return float64(inputTokens)*info.InputCostPerToken + float64(outputTokens)*info.OutputCostPerToken
 }
 
 // CapabilitiesForModel returns the parsed capabilities for a model.

@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -101,6 +103,16 @@ func startTUI(cfg *config.Config) error {
 
 	// Create token tracker
 	tracker := tokens.NewTracker(providerModels, providerLimits)
+
+	// Wire cost estimation from litellm pricing data
+	if metadataStore != nil {
+		tracker.SetCostFunc(func(model, providerType string, inputTokens, outputTokens int) float64 {
+			return metadataStore.CostForTokens(model, providerType, inputTokens, outputTokens)
+		})
+	}
+	for _, pc := range cfg.Providers {
+		tracker.SetProviderType(pc.Name, string(pc.Type))
+	}
 
 	// Create telemetry logger
 	tlog, err := telemetry.NewLogger()
@@ -497,6 +509,64 @@ func startTUI(cfg *config.Config) error {
 		}()
 	})
 
+	// Wire /sessions handler
+	model.SetSessionsHandler(func(subcommand, args string) {
+		go func() {
+			switch subcommand {
+			case "", "list":
+				sessions, err := config.ListSessions()
+				if err != nil {
+					program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nError: %v\n", err), Done: true})
+					return
+				}
+				if len(sessions) == 0 {
+					program.Send(tui.ConsensusChunkMsg{Delta: "\nNo saved sessions.\n", Done: true})
+					return
+				}
+				var sb strings.Builder
+				sb.WriteString("\nSaved sessions:\n\n")
+				for _, s := range sessions {
+					current := ""
+					if s.IsCurrent {
+						current = " ← current"
+					}
+					fmt.Fprintf(&sb, "  %-20s  %d exchanges  %s%s\n",
+						s.Name, s.Exchanges,
+						s.UpdatedAt.Format("Jan 02 15:04"), current)
+				}
+				sb.WriteString("\nUse /name <name> to name the current session.\n")
+				program.Send(tui.ConsensusChunkMsg{Delta: sb.String(), Done: true})
+			case "name":
+				if args == "" {
+					program.Send(tui.ConsensusChunkMsg{Delta: "\nUsage: /name <session-name>\n", Done: true})
+					return
+				}
+				session, _ := config.LoadSession()
+				if session == nil {
+					session = &config.Session{}
+				}
+				session.Name = args
+				if err := config.SaveSession(session); err != nil {
+					program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nError: %v\n", err), Done: true})
+					return
+				}
+				program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nSession named %q.\n", args), Done: true})
+			case "delete":
+				if args == "" {
+					program.Send(tui.ConsensusChunkMsg{Delta: "\nUsage: /sessions delete <name>\n", Done: true})
+					return
+				}
+				if err := config.DeleteSessionByName(args); err != nil {
+					program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nError: %v\n", err), Done: true})
+					return
+				}
+				program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nSession %q deleted.\n", args), Done: true})
+			default:
+				program.Send(tui.ConsensusChunkMsg{Delta: "\nUsage: /sessions [list|delete <name>]\n       /name <session-name>\n", Done: true})
+			}
+		}()
+	})
+
 	// Wire /memory handler
 	model.SetMemoryHandler(func(args string) {
 		go func() {
@@ -531,7 +601,9 @@ func startTUI(cfg *config.Config) error {
 	model.SetSaveHandler(func() {
 		session, _ := config.LoadSession()
 		if session != nil {
-			_ = config.SaveSession(session)
+			if err := config.SaveSession(session); err != nil {
+				log.Printf("Warning: failed to save session: %v", err)
+			}
 		}
 		program.Send(tui.ConsensusChunkMsg{Delta: "\n*Session saved.*\n", Done: true})
 	})
@@ -569,6 +641,21 @@ func startTUI(cfg *config.Config) error {
 			// Get full conversation history for this query
 			messages := conv.snapshot()
 
+			// Context auto-summarization: if the primary model is nearing
+			// its context limit (~80%), compress early conversation turns
+			// into a dense summary to free tokens.
+			primaryUsage := tracker.Get(primary.ID())
+			if primaryUsage.Limit > 0 && len(messages) > 4 {
+				usagePct := float64(primaryUsage.InputTokens) / float64(primaryUsage.Limit) * 100
+				if usagePct >= 80 {
+					messages = summarizeConversation(messages)
+					// Update conversation state with compressed version
+					conv.mu.Lock()
+					conv.messages = messages
+					conv.mu.Unlock()
+				}
+			}
+
 			// Merge built-in tools with MCP-discovered and skill-provided tools
 			tools := action.AllTools()
 			if mcpClient != nil {
@@ -584,17 +671,18 @@ func startTUI(cfg *config.Config) error {
 			defer cancel()
 
 			// Re-select providers per query (adaptive routing)
-			queryProviders := router.SelectProviders(currentMode, healthy, primary.ID())
+			queryProviders, routingReason := router.SelectProvidersWithReason(currentMode, healthy, primary.ID())
 			if len(queryProviders) == 0 {
 				queryProviders = healthy
+				routingReason = "fallback: using all healthy providers"
 			}
 
-			// Tell the TUI which providers are being queried
+			// Tell the TUI which providers are being queried and why
 			var queriedNames []string
 			for _, p := range queryProviders {
 				queriedNames = append(queriedNames, p.ID())
 			}
-			program.Send(tui.QueryStartMsg{QueriedProviders: queriedNames})
+			program.Send(tui.QueryStartMsg{QueriedProviders: queriedNames, RoutingReason: routingReason})
 
 			queryPipeline := consensus.NewPipeline(
 				queryProviders,
@@ -629,9 +717,11 @@ func startTUI(cfg *config.Config) error {
 					tracker.Add(id, usage)
 					if tlog != nil {
 						success := true
+						latencyMS := fanOutResult.Latencies[id].Milliseconds()
 						tlog.Log(telemetry.Event{
 							ProviderID:   id,
 							EventType:    telemetry.EventProviderResponse,
+							LatencyMS:    latencyMS,
 							InputTokens:  usage.InputTokens,
 							OutputTokens: usage.OutputTokens,
 							Success:      &success,
@@ -641,9 +731,11 @@ func startTUI(cfg *config.Config) error {
 				for id, provErr := range fanOutResult.Errors {
 					if tlog != nil {
 						fail := false
+						latencyMS := fanOutResult.Latencies[id].Milliseconds()
 						tlog.Log(telemetry.Event{
 							ProviderID: id,
 							EventType:  telemetry.EventProviderResponse,
+							LatencyMS:  latencyMS,
 							Error:      provErr.Error(),
 							Success:    &fail,
 						})
@@ -701,6 +793,27 @@ func startTUI(cfg *config.Config) error {
 			// Track consensus synthesis usage on the primary
 			if consensusUsage.InputTokens > 0 || consensusUsage.OutputTokens > 0 {
 				tracker.Add(primary.ID(), consensusUsage)
+			}
+
+			// Parse and surface consensus provenance data to TUI
+			if fullResponse != "" {
+				analysis := consensus.ParseConsensusAnalysis(fullResponse)
+				if analysis != nil {
+					var minorities []string
+					for _, mr := range analysis.MinorityReports {
+						entry := mr.Position
+						if mr.ProviderID != "" {
+							entry = "[" + mr.ProviderID + "] " + entry
+						}
+						minorities = append(minorities, entry)
+					}
+					program.Send(tui.ConsensusAnalysisMsg{
+						Confidence: analysis.Confidence,
+						Agreements: analysis.Agreements,
+						Minorities: minorities,
+						Evidence:   analysis.Evidence,
+					})
+				}
 			}
 
 			// NOTE: Don't append fullResponse to conv yet — if tool execution
@@ -840,6 +953,38 @@ func startTUI(cfg *config.Config) error {
 					fullResponse += "\n" + toolResponse
 				}
 
+				// Run verification if configured or auto-detected after tool execution.
+				verifyCmd := cfg.Consensus.VerifyCommand
+				if verifyCmd == "" {
+					verifyCmd = action.DetectVerifyCommand(workDir)
+				}
+				if verifyCmd != "" {
+					program.Send(tui.ConsensusChunkMsg{
+						Delta: fmt.Sprintf("\nRunning verification: `%s`...\n", verifyCmd),
+					})
+					verifyOut, verifyOK, verifyErr := action.RunVerification(
+						context.Background(), verifyCmd, workDir, 2*time.Minute,
+					)
+					if verifyErr != nil {
+						program.Send(tui.ConsensusChunkMsg{
+							Delta: fmt.Sprintf("\nVerification error: %v\n", verifyErr),
+						})
+					} else if !verifyOK {
+						// Show truncated failure output
+						display := verifyOut
+						if len(display) > 1000 {
+							display = display[:1000] + "\n... (truncated)"
+						}
+						program.Send(tui.ConsensusChunkMsg{
+							Delta: fmt.Sprintf("\nVerification failed:\n```\n%s\n```\n", display),
+						})
+					} else {
+						program.Send(tui.ConsensusChunkMsg{
+							Delta: "\nVerification passed.\n",
+						})
+					}
+				}
+
 				// Fire post-tool hook
 				hookMgr.Run(hooks.PostTool, hooks.HookContext{
 					Prompt:   prompt,
@@ -874,9 +1019,7 @@ func startTUI(cfg *config.Config) error {
 
 				individual := make(map[string]string)
 				if fanOutResult != nil {
-					for id, content := range fanOutResult.Responses {
-						individual[id] = content
-					}
+					maps.Copy(individual, fanOutResult.Responses)
 				}
 
 				session, _ := config.LoadSession()
@@ -884,12 +1027,48 @@ func startTUI(cfg *config.Config) error {
 					session = &config.Session{}
 				}
 				session.Messages = sessionMsgs
+
+				// Build consensus trace for replay
+				var trace *config.ConsensusTrace
+				if fanOutResult != nil {
+					trace = &config.ConsensusTrace{
+						RoutingMode:    string(currentMode),
+						RoutingReason:  routingReason,
+						SynthesisModel: primary.ID(),
+					}
+					for _, p := range queryProviders {
+						trace.Providers = append(trace.Providers, p.ID())
+					}
+					if len(fanOutResult.Latencies) > 0 {
+						trace.Latencies = make(map[string]int64)
+						for id, d := range fanOutResult.Latencies {
+							trace.Latencies[id] = d.Milliseconds()
+						}
+					}
+					if len(fanOutResult.Usage) > 0 {
+						trace.TokenUsage = make(map[string][2]int)
+						for id, u := range fanOutResult.Usage {
+							trace.TokenUsage[id] = [2]int{u.InputTokens, u.OutputTokens}
+						}
+					}
+					if len(fanOutResult.Errors) > 0 {
+						trace.Errors = make(map[string]string)
+						for id, err := range fanOutResult.Errors {
+							trace.Errors[id] = err.Error()
+						}
+					}
+					trace.Skipped = fanOutResult.Skipped
+				}
+
 				session.Exchanges = append(session.Exchanges, config.SessionExchange{
 					Prompt:            prompt,
 					ConsensusResponse: fullResponse,
 					Individual:        individual,
+					Trace:             trace,
 				})
-				_ = config.SaveSession(session)
+				if err := config.SaveSession(session); err != nil {
+					log.Printf("Warning: auto-save session failed: %v", err)
+				}
 			}()
 
 			program.Send(tui.QueryDoneMsg{})
@@ -943,6 +1122,72 @@ func toSessionMessages(msgs []provider.Message) []config.SessionMessage {
 		out = append(out, sm)
 	}
 	return out
+}
+
+// summarizeConversation compresses early conversation turns into a dense
+// summary, preserving the system prompt and the most recent turns. This
+// frees context tokens when the session is approaching the model's limit.
+func summarizeConversation(messages []provider.Message) []provider.Message {
+	if len(messages) <= 4 {
+		return messages
+	}
+
+	// Keep the system prompt (first message) and the last 4 messages intact.
+	// Compress everything in between into a summary.
+	var systemMsg provider.Message
+	startIdx := 0
+	if len(messages) > 0 && messages[0].Role == provider.RoleSystem {
+		systemMsg = messages[0]
+		startIdx = 1
+	}
+
+	keepRecent := 4
+	if len(messages)-startIdx <= keepRecent {
+		return messages
+	}
+
+	cutoff := len(messages) - keepRecent
+	middle := messages[startIdx:cutoff]
+
+	// Build a compressed summary of the middle conversation turns.
+	var summary strings.Builder
+	summary.WriteString("[Conversation summary — earlier exchanges compressed to save context]\n\n")
+	exchangeCount := 0
+	for _, m := range middle {
+		if m.Role == provider.RoleUser {
+			exchangeCount++
+			content := m.Content
+			if len(content) > 100 {
+				content = content[:97] + "..."
+			}
+			fmt.Fprintf(&summary, "- User asked: %s\n", content)
+		} else if m.Role == provider.RoleAssistant {
+			content := m.Content
+			if len(content) > 150 {
+				content = content[:147] + "..."
+			}
+			fmt.Fprintf(&summary, "  Response: %s\n", content)
+		}
+		// Skip tool messages in summary — the key context is in user/assistant turns.
+	}
+	fmt.Fprintf(&summary, "\n[%d earlier exchanges summarized]\n", exchangeCount)
+
+	// Reassemble: system + summary + recent messages
+	result := make([]provider.Message, 0, keepRecent+2)
+	if systemMsg.Role != "" {
+		result = append(result, systemMsg)
+	}
+	result = append(result, provider.Message{
+		Role:    provider.RoleUser,
+		Content: summary.String(),
+	})
+	result = append(result, provider.Message{
+		Role:    provider.RoleAssistant,
+		Content: "Understood. I have the context from our earlier conversation.",
+	})
+	result = append(result, messages[cutoff:]...)
+
+	return result
 }
 
 // fromSessionMessages converts serialized session messages back to provider

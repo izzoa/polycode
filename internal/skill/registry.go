@@ -2,7 +2,6 @@ package skill
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -153,7 +152,7 @@ func (r *Registry) ToToolDefinitions() []provider.ToolDefinition {
 		for _, tool := range skill.Manifest.Tools {
 			params := tool.Parameters
 			if params == nil {
-				params = map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}
+				params = map[string]any{"type": "object", "properties": map[string]any{}}
 			}
 			defs = append(defs, provider.ToolDefinition{
 				Name:        fmt.Sprintf("skill_%s_%s", skill.Manifest.Name, tool.Name),
@@ -266,16 +265,16 @@ func (r *Registry) FormatList() string {
 	var b strings.Builder
 	b.WriteString("Installed skills:\n\n")
 	for _, s := range skills {
-		b.WriteString(fmt.Sprintf("  %s", s.Manifest.Name))
+		fmt.Fprintf(&b, "  %s", s.Manifest.Name)
 		if s.Manifest.Version != "" {
-			b.WriteString(fmt.Sprintf(" v%s", s.Manifest.Version))
+			fmt.Fprintf(&b, " v%s", s.Manifest.Version)
 		}
-		b.WriteString(fmt.Sprintf(" — %s\n", s.Manifest.Description))
+		fmt.Fprintf(&b, " — %s\n", s.Manifest.Description)
 		if s.Manifest.Command != "" {
-			b.WriteString(fmt.Sprintf("    command: /%s\n", s.Manifest.Command))
+			fmt.Fprintf(&b, "    command: /%s\n", s.Manifest.Command)
 		}
 		if len(s.Manifest.Tools) > 0 {
-			b.WriteString(fmt.Sprintf("    tools: %d\n", len(s.Manifest.Tools)))
+			fmt.Fprintf(&b, "    tools: %d\n", len(s.Manifest.Tools))
 		}
 	}
 	return b.String()
@@ -306,5 +305,3 @@ func copyDir(src, dst string) error {
 	})
 }
 
-// Ensure json is available for potential future use
-var _ = json.Marshal

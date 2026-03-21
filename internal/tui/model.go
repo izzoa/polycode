@@ -62,6 +62,7 @@ type ProviderPanel struct {
 type tokenDisplay struct {
 	Used    string  // formatted used count, e.g. "12.4K"
 	Limit   string  // formatted limit, e.g. "200K", or "" if unlimited
+	Cost    string  // formatted cost, e.g. "$0.12", or "" if no pricing data
 	Percent float64 // 0-100, 0 if unlimited
 	HasData bool    // false if provider reported zero usage
 }
@@ -118,6 +119,11 @@ type Model struct {
 	chatLogCache  string     // cached rendered chat log (rebuilt only when history changes)
 	chatLogDirty  bool       // true when history changed and cache needs rebuild
 
+	// Input history — allows cycling through previous prompts with up/down
+	inputHistory []string // all submitted prompts in order
+	inputHistIdx int      // current position in history (-1 = not browsing)
+	inputDraft   string   // saved draft when entering history browsing
+
 	// Error display — surfaced prominently in the chat area
 	lastError string // cleared on next successful query or /clear
 
@@ -129,7 +135,8 @@ type Model struct {
 	version    string
 
 	// Operating mode
-	currentMode string // "quick", "balanced", "thorough"
+	currentMode   string // "quick", "balanced", "thorough"
+	routingReason string // why current providers were selected
 
 	// Action confirmation
 	confirmPending     bool
@@ -208,6 +215,7 @@ type Model struct {
 	onModeChange    func(mode string)
 	onMemory        func(args string)
 	onSkill         func(subcommand, args string)
+	onSessions      func(subcommand, args string)
 	onSave          func()
 	onExport        func(path string)
 	onYoloToggle    func(enabled bool)
@@ -316,13 +324,14 @@ func NewModel(providerNames []string, primaryName string, version string) Model 
 		showIndividual: true,
 		spinner:        sp,
 		history:        []Exchange{},
+		inputHistIdx:   -1,
 		styles:         defaultStyles(),
 		mode:           viewChat,
 		wizardInput:    ti,
 		slashCommands: []string{
 			"/clear", "/exit", "/export", "/help",
-			"/memory", "/mode", "/plan ", "/quit",
-			"/save", "/settings", "/skill", "/yolo",
+			"/memory", "/mode", "/name ", "/plan ", "/quit",
+			"/save", "/sessions", "/settings", "/skill", "/yolo",
 		},
 		slashCompIdx:    -1,
 		modePickerItems: []string{"quick", "balanced", "thorough"},
@@ -368,6 +377,11 @@ func (m *Model) SetMemoryHandler(handler func(args string)) {
 // SetSkillHandler sets the callback for /skill command.
 func (m *Model) SetSkillHandler(handler func(subcommand, args string)) {
 	m.onSkill = handler
+}
+
+// SetSessionsHandler sets the callback for /sessions command.
+func (m *Model) SetSessionsHandler(handler func(subcommand, args string)) {
+	m.onSessions = handler
 }
 
 // SetSaveHandler sets the callback for /save command.

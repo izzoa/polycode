@@ -54,6 +54,13 @@ func (p *GeminiProvider) Authenticate() error {
 	key, err := p.store.Get(p.name)
 	if err == nil && key != "" {
 		p.apiKey = key
+		// If OAuth, check for token expiry and auto-refresh.
+		if p.authMethod == "oauth" && p.oauthCfg != nil && auth.IsTokenExpired(*p.oauthCfg, p.store) {
+			if newToken, err := auth.TryRefresh(*p.oauthCfg, p.store); err == nil {
+				p.apiKey = newToken
+				_ = p.store.Set(p.name, newToken)
+			}
+		}
 		return nil
 	}
 
@@ -81,6 +88,7 @@ func (p *GeminiProvider) Validate() error {
 // geminiRequest is the request body for the Gemini streaming API.
 type geminiRequest struct {
 	Contents []geminiContent `json:"contents"`
+	Tools    []geminiToolDef `json:"tools,omitempty"`
 }
 
 type geminiContent struct {
@@ -89,7 +97,33 @@ type geminiContent struct {
 }
 
 type geminiPart struct {
-	Text string `json:"text"`
+	Text             string                `json:"text,omitempty"`
+	FunctionCall     *geminiFunctionCall   `json:"functionCall,omitempty"`
+	FunctionResponse *geminiFunctionResp   `json:"functionResponse,omitempty"`
+}
+
+// geminiFunctionCall represents a function call from the model.
+type geminiFunctionCall struct {
+	Name string                 `json:"name"`
+	Args map[string]any `json:"args,omitempty"`
+}
+
+// geminiFunctionResp represents a function response sent back to the model.
+type geminiFunctionResp struct {
+	Name     string                 `json:"name"`
+	Response map[string]any `json:"response"`
+}
+
+// geminiToolDef is a tool definition in Gemini format.
+type geminiToolDef struct {
+	FunctionDeclarations []geminiFuncDecl `json:"functionDeclarations"`
+}
+
+// geminiFuncDecl is a function declaration within a tool.
+type geminiFuncDecl struct {
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	Parameters  any `json:"parameters,omitempty"`
 }
 
 // geminiSSEResponse represents one SSE data payload from Gemini.
@@ -112,15 +146,65 @@ func (p *GeminiProvider) Query(ctx context.Context, messages []Message, opts Que
 	var contents []geminiContent
 	for _, m := range messages {
 		role := string(m.Role)
-		// Gemini uses "model" instead of "assistant", and "user" for both
-		// user and system messages (system instructions are handled
-		// separately in the full API, but we fold them into user here).
 		switch m.Role {
 		case RoleAssistant:
 			role = "model"
-		case RoleSystem, RoleTool:
+		case RoleSystem:
 			role = "user"
+		case RoleTool:
+			// Tool results use the "user" role with functionResponse parts.
+			// Find the tool call name from the message history.
+			toolName := m.ToolCallID // fallback to ID
+			for _, prev := range messages {
+				for _, tc := range prev.ToolCalls {
+					if tc.ID == m.ToolCallID {
+						toolName = tc.Name
+						break
+					}
+				}
+			}
+			contents = append(contents, geminiContent{
+				Role: "user",
+				Parts: []geminiPart{{
+					FunctionResponse: &geminiFunctionResp{
+						Name: toolName,
+						Response: map[string]any{
+							"result": m.Content,
+						},
+					},
+				}},
+			})
+			continue
 		}
+
+		// Handle assistant messages with tool calls.
+		if m.Role == RoleAssistant && len(m.ToolCalls) > 0 {
+			var parts []geminiPart
+			if m.Content != "" {
+				parts = append(parts, geminiPart{Text: m.Content})
+			}
+			for _, tc := range m.ToolCalls {
+				var args map[string]any
+				if tc.Arguments != "" {
+					_ = json.Unmarshal([]byte(tc.Arguments), &args)
+				}
+				if args == nil {
+					args = map[string]any{}
+				}
+				parts = append(parts, geminiPart{
+					FunctionCall: &geminiFunctionCall{
+						Name: tc.Name,
+						Args: args,
+					},
+				})
+			}
+			contents = append(contents, geminiContent{
+				Role:  "model",
+				Parts: parts,
+			})
+			continue
+		}
+
 		contents = append(contents, geminiContent{
 			Role:  role,
 			Parts: []geminiPart{{Text: m.Content}},
@@ -129,6 +213,19 @@ func (p *GeminiProvider) Query(ctx context.Context, messages []Message, opts Que
 
 	reqBody := geminiRequest{
 		Contents: contents,
+	}
+
+	// Map tool definitions if provided.
+	if len(opts.Tools) > 0 {
+		var decls []geminiFuncDecl
+		for _, t := range opts.Tools {
+			decls = append(decls, geminiFuncDecl{
+				Name:        t.Name,
+				Description: t.Description,
+				Parameters:  t.Parameters,
+			})
+		}
+		reqBody.Tools = []geminiToolDef{{FunctionDeclarations: decls}}
 	}
 
 	body, err := json.Marshal(reqBody)
@@ -215,12 +312,24 @@ func (p *GeminiProvider) readSSE(ctx context.Context, body io.ReadCloser, ch cha
 
 		candidate := resp.Candidates[0]
 
-		if len(candidate.Content.Parts) > 0 && candidate.Content.Parts[0].Text != "" {
-			ch <- StreamChunk{Delta: candidate.Content.Parts[0].Text}
+		// Emit text content and accumulate function calls from parts.
+		var toolCalls []ToolCall
+		for _, part := range candidate.Content.Parts {
+			if part.Text != "" {
+				ch <- StreamChunk{Delta: part.Text}
+			}
+			if part.FunctionCall != nil {
+				args, _ := json.Marshal(part.FunctionCall.Args)
+				toolCalls = append(toolCalls, ToolCall{
+					ID:        fmt.Sprintf("gemini_call_%s", part.FunctionCall.Name),
+					Name:      part.FunctionCall.Name,
+					Arguments: string(args),
+				})
+			}
 		}
 
-		if candidate.FinishReason == "STOP" {
-			ch <- StreamChunk{Done: true, InputTokens: inputTokens, OutputTokens: outputTokens}
+		if candidate.FinishReason == "STOP" || candidate.FinishReason == "FUNCTION_CALL" {
+			ch <- StreamChunk{Done: true, ToolCalls: toolCalls, InputTokens: inputTokens, OutputTokens: outputTokens}
 			return
 		}
 	}

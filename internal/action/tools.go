@@ -7,10 +7,10 @@ func FileReadTool() provider.ToolDefinition {
 	return provider.ToolDefinition{
 		Name:        "file_read",
 		Description: "Read the contents of a file at the given path.",
-		Parameters: map[string]interface{}{
+		Parameters: map[string]any{
 			"type": "object",
-			"properties": map[string]interface{}{
-				"path": map[string]interface{}{
+			"properties": map[string]any{
+				"path": map[string]any{
 					"type":        "string",
 					"description": "The absolute or relative path of the file to read.",
 				},
@@ -25,14 +25,14 @@ func FileWriteTool() provider.ToolDefinition {
 	return provider.ToolDefinition{
 		Name:        "file_write",
 		Description: "Write content to a file at the given path, creating or overwriting it.",
-		Parameters: map[string]interface{}{
+		Parameters: map[string]any{
 			"type": "object",
-			"properties": map[string]interface{}{
-				"path": map[string]interface{}{
+			"properties": map[string]any{
+				"path": map[string]any{
 					"type":        "string",
 					"description": "The absolute or relative path of the file to write.",
 				},
-				"content": map[string]interface{}{
+				"content": map[string]any{
 					"type":        "string",
 					"description": "The content to write to the file.",
 				},
@@ -47,14 +47,14 @@ func ShellExecTool() provider.ToolDefinition {
 	return provider.ToolDefinition{
 		Name:        "shell_exec",
 		Description: "Execute a shell command and return its output.",
-		Parameters: map[string]interface{}{
+		Parameters: map[string]any{
 			"type": "object",
-			"properties": map[string]interface{}{
-				"command": map[string]interface{}{
+			"properties": map[string]any{
+				"command": map[string]any{
 					"type":        "string",
 					"description": "The shell command to execute.",
 				},
-				"working_dir": map[string]interface{}{
+				"working_dir": map[string]any{
 					"type":        "string",
 					"description": "The working directory for the command. Defaults to the current directory if not specified.",
 				},

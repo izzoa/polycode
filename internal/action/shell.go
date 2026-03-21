@@ -12,14 +12,16 @@ import (
 var destructivePatterns = []string{
 	"rm ",
 	"rm\t",
+	"rm-rf", // no-space variant
 	"sudo ",
 	"sudo\t",
 	"mkfs",
 	"dd ",
 	"dd\t",
 	"> /dev/",
-	"chmod -R",
-	"chown -R",
+	">|",  // clobber operator
+	"chmod -r",
+	"chown -r",
 	"kill ",
 	"kill\t",
 	"killall ",
@@ -27,6 +29,20 @@ var destructivePatterns = []string{
 	"shutdown",
 	"reboot",
 	"format ",
+	"|sh",    // pipe to shell
+	"| sh",
+	"|bash",
+	"| bash",
+	"|zsh",
+	"| zsh",
+	"curl|",  // curl piped to anything
+	"curl |",
+	"wget|",
+	"wget |",
+	"/dev/sd",
+	"/dev/nvme",
+	"/sys/",
+	"/proc/",
 }
 
 // isDestructive performs a simple heuristic check to determine if a command

@@ -17,7 +17,8 @@ type ProviderUsage struct {
 	Model        string
 	InputTokens  int
 	OutputTokens int
-	Limit        int // 0 means unlimited
+	Limit        int     // 0 means unlimited
+	Cost         float64 // accumulated estimated cost in USD (0 if pricing unavailable)
 }
 
 // Percent returns the input token usage as a percentage of the limit.
@@ -29,19 +30,26 @@ func (u ProviderUsage) Percent() float64 {
 	return float64(u.InputTokens) / float64(u.Limit) * 100
 }
 
+// CostFunc computes the estimated USD cost for given token counts.
+// model is the model name, providerType is the provider type string.
+type CostFunc func(model, providerType string, inputTokens, outputTokens int) float64
+
 // TokenTracker accumulates token usage per provider across a session.
 type TokenTracker struct {
-	mu     sync.RWMutex
-	usage  map[string]*ProviderUsage // provider ID → usage
-	models map[string]string         // provider ID → model name
+	mu            sync.RWMutex
+	usage         map[string]*ProviderUsage // provider ID → usage
+	models        map[string]string         // provider ID → model name
+	providerTypes map[string]string         // provider ID → provider type
+	costFn        CostFunc                  // optional cost calculator
 }
 
 // NewTracker creates a TokenTracker. Pass provider ID → model name
 // and provider ID → resolved context limit.
 func NewTracker(providerModels map[string]string, providerLimits map[string]int) *TokenTracker {
 	t := &TokenTracker{
-		usage:  make(map[string]*ProviderUsage, len(providerModels)),
-		models: providerModels,
+		usage:         make(map[string]*ProviderUsage, len(providerModels)),
+		models:        providerModels,
+		providerTypes: make(map[string]string),
 	}
 	for id, model := range providerModels {
 		limit := providerLimits[id]
@@ -52,6 +60,20 @@ func NewTracker(providerModels map[string]string, providerLimits map[string]int)
 		}
 	}
 	return t
+}
+
+// SetCostFunc sets an optional cost estimation function.
+func (t *TokenTracker) SetCostFunc(fn CostFunc) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.costFn = fn
+}
+
+// SetProviderType records the provider type for a provider ID.
+func (t *TokenTracker) SetProviderType(providerID, providerType string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.providerTypes[providerID] = providerType
 }
 
 // Add records token usage for a provider from a single API call.
@@ -65,6 +87,33 @@ func (t *TokenTracker) Add(providerID string, u Usage) {
 	}
 	pu.InputTokens += u.InputTokens
 	pu.OutputTokens += u.OutputTokens
+	if t.costFn != nil {
+		model := t.models[providerID]
+		ptype := t.providerTypes[providerID]
+		pu.Cost += t.costFn(model, ptype, u.InputTokens, u.OutputTokens)
+	}
+}
+
+// TotalCost returns the accumulated cost across all providers.
+func (t *TokenTracker) TotalCost() float64 {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	var total float64
+	for _, pu := range t.usage {
+		total += pu.Cost
+	}
+	return total
+}
+
+// FormatCost formats a USD amount for display.
+func FormatCost(usd float64) string {
+	if usd == 0 {
+		return ""
+	}
+	if usd < 0.01 {
+		return fmt.Sprintf("$%.4f", usd)
+	}
+	return fmt.Sprintf("$%.2f", usd)
 }
 
 // Get returns the accumulated usage for a single provider.

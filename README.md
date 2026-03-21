@@ -35,7 +35,7 @@ Query every configured LLM simultaneously. Responses fan out in parallel (latenc
 |----------|------|-----------|----------|------|
 | **Anthropic Claude** | `anthropic` | SSE | Function calling | API key, OAuth |
 | **OpenAI (GPT, o-series)** | `openai` | SSE | Function calling | API key |
-| **Google Gemini** | `google` | SSE | — | API key, OAuth |
+| **Google Gemini** | `google` | SSE | Function calling | API key, OAuth |
 | **OpenAI-compatible** | `openai_compatible` | SSE | Function calling | API key, none |
 
 OpenAI-compatible covers **OpenRouter**, **Ollama**, **vLLM**, **LM Studio**, **Together AI**, and any endpoint that speaks the OpenAI chat completions API.
@@ -62,13 +62,15 @@ No need to edit YAML — configure everything from within the TUI:
 - **Test** provider connections with a single keypress
 - Changes apply **immediately** — no restart required
 
-### Token Usage Tracking
+### Token Usage & Cost Tracking
 
-Real-time visibility into how much context you're consuming:
+Real-time visibility into how much context and budget you're consuming:
 
 - Per-provider token counts displayed in the status bar (`12.4K/200K`)
+- **Estimated cost** per provider from litellm pricing data (e.g., `$0.12`)
 - Color-coded warnings at **80%** (amber) and **95%** (red) of context limits
 - Automatic provider exclusion when context limit is reached
+- **Context auto-summarization** — when nearing 80% of context limit, early conversation turns are compressed into a summary to free tokens
 - Consensus synthesis usage tracked separately
 
 ### Dynamic Model Metadata
@@ -86,7 +88,7 @@ Polycode fetches model information from [litellm's model database](https://githu
 The consensus output can drive coding actions, just like single-model assistants:
 
 - **File read** — read file contents into conversation context (no confirmation needed)
-- **File write** — propose changes with diff display, user confirms before applying
+- **File write** — propose changes with unified diff preview, user confirms before applying
 - **Shell exec** — run commands with confirmation, destructive command detection (`rm`, `sudo`, etc.)
 - **Tool-use loop** — the primary model can chain multiple tool calls (up to 10 iterations)
 
@@ -150,6 +152,7 @@ Switch modes with `/mode quick`, `/mode balanced`, or `/mode thorough`. The rout
 | `polycode export [--format md\|json]` | Export session |
 | `polycode import <file>` | Import session |
 | `polycode skill list\|install\|remove` | Manage skills |
+| `polycode session list\|show\|delete` | Manage saved sessions |
 | `polycode auth login\|logout\|status` | Manage credentials |
 | `polycode config edit\|show\|path` | Manage configuration |
 
@@ -221,9 +224,12 @@ Or press `Ctrl+S` in the TUI to open settings, then `a`. The more providers you 
 | `/export [path]` | Export session as JSON |
 | `/mode <name>` | Switch mode: quick, balanced, thorough |
 | `/plan <request>` | Run multi-model agent team pipeline |
+| `/sessions` | List all saved sessions |
+| `/name <name>` | Name the current session |
 | `/memory` | View repo memory |
 | `/skill [list\|install\|remove]` | Manage installed skills/plugins |
 | `/yolo` | Toggle auto-approve for all tool actions |
+| `p` | Toggle consensus provenance panel (confidence, agreements, routing) |
 | `/exit` | Quit polycode |
 
 ---

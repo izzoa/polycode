@@ -38,7 +38,7 @@ func (e *Engine) BuildConsensusPrompt(originalPrompt string, responses map[strin
 	var b strings.Builder
 
 	b.WriteString("You are synthesizing responses from multiple AI models to produce the best possible answer.\n\n")
-	b.WriteString(fmt.Sprintf("Original question: %s\n\n", originalPrompt))
+	fmt.Fprintf(&b, "Original question: %s\n\n", originalPrompt)
 	b.WriteString("Model responses:\n")
 
 	// Sort provider IDs for deterministic prompt ordering.
@@ -50,7 +50,7 @@ func (e *Engine) BuildConsensusPrompt(originalPrompt string, responses map[strin
 
 	for _, id := range ids {
 		b.WriteString("---\n")
-		b.WriteString(fmt.Sprintf("[Model: %s]\n", id))
+		fmt.Fprintf(&b, "[Model: %s]\n", id)
 		b.WriteString(responses[id])
 		b.WriteString("\n---\n\n")
 	}
@@ -100,7 +100,11 @@ func (e *Engine) Synthesize(
 		defer cancel()
 		defer close(out)
 		for chunk := range ch {
-			out <- chunk
+			select {
+			case out <- chunk:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 

@@ -55,7 +55,7 @@ type ToolCall struct {
 type ToolDefinition struct {
 	Name        string      `json:"name"`
 	Description string      `json:"description"`
-	Parameters  interface{} `json:"parameters"`
+	Parameters  any `json:"parameters"`
 }
 
 // QueryOpts holds options for a query.

@@ -41,9 +41,12 @@ func (l *ToolLoop) Run(
 
 	currentCalls := toolCalls
 
-	for i := 0; i < maxIterations; i++ {
+	for i := range maxIterations {
 		if len(currentCalls) == 0 {
-			out <- provider.StreamChunk{Done: true}
+			select {
+			case out <- provider.StreamChunk{Done: true}:
+			case <-ctx.Done():
+			}
 			return nil
 		}
 
@@ -54,9 +57,13 @@ func (l *ToolLoop) Run(
 		// Execute every pending tool call and collect results.
 		for _, call := range currentCalls {
 			// Send execution status to output (not persisted)
-			out <- provider.StreamChunk{
+			select {
+			case out <- provider.StreamChunk{
 				Delta:  fmt.Sprintf("\nExecuting %s...\n", call.Name),
 				Status: true,
+			}:
+			case <-ctx.Done():
+				return ctx.Err()
 			}
 
 			result := l.executor.Execute(call)
@@ -75,9 +82,13 @@ func (l *ToolLoop) Run(
 				displayOutput = displayOutput[:500] + "\n... (truncated)"
 			}
 			if displayOutput != "" {
-				out <- provider.StreamChunk{
+				select {
+				case out <- provider.StreamChunk{
 					Delta:  fmt.Sprintf("```\n%s\n```\n", displayOutput),
 					Status: true,
+				}:
+				case <-ctx.Done():
+					return ctx.Err()
 				}
 			}
 
@@ -104,7 +115,11 @@ func (l *ToolLoop) Run(
 			}
 			if chunk.Delta != "" {
 				responseContent += chunk.Delta
-				out <- provider.StreamChunk{Delta: chunk.Delta}
+				select {
+				case out <- provider.StreamChunk{Delta: chunk.Delta}:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 			}
 			newToolCalls = append(newToolCalls, chunk.ToolCalls...)
 		}
@@ -130,7 +145,10 @@ func (l *ToolLoop) Run(
 		}
 
 		// No more tool calls — done.
-		out <- provider.StreamChunk{Done: true}
+		select {
+		case out <- provider.StreamChunk{Done: true}:
+		case <-ctx.Done():
+		}
 		return nil
 	}
 

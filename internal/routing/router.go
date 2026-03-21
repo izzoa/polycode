@@ -3,6 +3,7 @@ package routing
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"sort"
@@ -190,31 +191,35 @@ func (r *Router) refreshIfStale() {
 //   - balanced: returns the primary plus the best-scoring non-primary
 //   - thorough: returns all healthy providers
 func (r *Router) SelectProviders(mode Mode, allHealthy []provider.Provider, primaryID string) []provider.Provider {
+	providers, _ := r.SelectProvidersWithReason(mode, allHealthy, primaryID)
+	return providers
+}
+
+// SelectProvidersWithReason returns the selected providers along with a
+// human-readable explanation of why they were chosen.
+func (r *Router) SelectProvidersWithReason(mode Mode, allHealthy []provider.Provider, primaryID string) ([]provider.Provider, string) {
 	r.refreshIfStale()
 
 	switch mode {
 	case ModeQuick:
-		// Periodic full-consensus calibration: every calibrationInterval queries
-		// in quick mode, fan out to all providers to recalibrate routing scores.
 		r.mu.Lock()
 		r.quickQueryCount++
 		calibrate := r.quickQueryCount%calibrationInterval == 0
 		r.mu.Unlock()
 
 		if calibrate && len(allHealthy) > 1 {
-			return allHealthy
+			return allHealthy, "quick mode: calibration query (all providers)"
 		}
 
 		for _, p := range allHealthy {
 			if p.ID() == primaryID {
-				return []provider.Provider{p}
+				return []provider.Provider{p}, fmt.Sprintf("quick mode: primary only (%s)", primaryID)
 			}
 		}
-		// Primary not found in healthy list; return first available.
 		if len(allHealthy) > 0 {
-			return []provider.Provider{allHealthy[0]}
+			return []provider.Provider{allHealthy[0]}, fmt.Sprintf("quick mode: fallback (%s)", allHealthy[0].ID())
 		}
-		return nil
+		return nil, "quick mode: no healthy providers"
 
 	case ModeBalanced:
 		var primary provider.Provider
@@ -243,16 +248,23 @@ func (r *Router) SelectProviders(mode Mode, allHealthy []provider.Provider, prim
 				sj := stats[secondaries[j].ID()]
 				return r.ScoreProvider(si) > r.ScoreProvider(sj)
 			})
-			result = append(result, secondaries[0])
+			best := secondaries[0]
+			result = append(result, best)
+
+			bestScore := r.ScoreProvider(stats[best.ID()])
+			return result, fmt.Sprintf("balanced: %s (primary) + %s (score: %.2f)", primaryID, best.ID(), bestScore)
 		}
 
-		return result
+		return result, fmt.Sprintf("balanced: %s (primary only, no secondaries)", primaryID)
 
 	case ModeThorough:
-		return allHealthy
+		var names []string
+		for _, p := range allHealthy {
+			names = append(names, p.ID())
+		}
+		return allHealthy, fmt.Sprintf("thorough: all %d providers", len(allHealthy))
 
 	default:
-		// Fallback to balanced behavior.
-		return r.SelectProviders(ModeBalanced, allHealthy, primaryID)
+		return r.SelectProvidersWithReason(ModeBalanced, allHealthy, primaryID)
 	}
 }

@@ -19,6 +19,8 @@ type FanOutResult struct {
 	Errors map[string]error
 	// Usage maps provider ID to the token usage reported by that provider.
 	Usage map[string]tokens.Usage
+	// Latencies maps provider ID to the response wall-clock duration.
+	Latencies map[string]time.Duration
 	// Skipped lists provider IDs that were skipped due to context limits.
 	Skipped []string
 }
@@ -44,6 +46,7 @@ func FanOut(
 		Responses: make(map[string]string, len(providers)),
 		Errors:    make(map[string]error, len(providers)),
 		Usage:     make(map[string]tokens.Usage, len(providers)),
+		Latencies: make(map[string]time.Duration, len(providers)),
 	}
 
 	// Strip tools from fan-out opts — individual providers should respond
@@ -67,10 +70,12 @@ func FanOut(
 			defer wg.Done()
 
 			id := p.ID()
+			start := time.Now()
 			ch, err := p.Query(ctx, messages, fanOutOpts)
 			if err != nil {
 				mu.Lock()
 				result.Errors[id] = err
+				result.Latencies[id] = time.Since(start)
 				mu.Unlock()
 				return
 			}
@@ -81,6 +86,7 @@ func FanOut(
 				if chunk.Error != nil {
 					mu.Lock()
 					result.Errors[id] = chunk.Error
+					result.Latencies[id] = time.Since(start)
 					mu.Unlock()
 					return
 				}
@@ -96,6 +102,7 @@ func FanOut(
 			mu.Lock()
 			result.Responses[id] = buf.String()
 			result.Usage[id] = usage
+			result.Latencies[id] = time.Since(start)
 			mu.Unlock()
 		}(p)
 	}

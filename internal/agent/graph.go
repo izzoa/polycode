@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -120,7 +121,9 @@ func (g *TaskGraph) Run(ctx context.Context, input string, onStageComplete func(
 
 	// Save final checkpoint.
 	checkpoint := jobResultToCheckpoint(result)
-	_ = SaveCheckpoint(g.JobID, checkpoint)
+	if err := SaveCheckpoint(g.JobID, checkpoint); err != nil {
+		log.Printf("Warning: failed to save checkpoint for job %s: %v", g.JobID, err)
+	}
 
 	return result, nil
 }
@@ -198,7 +201,9 @@ func (g *TaskGraph) Resume(ctx context.Context, jobID string, onStageComplete fu
 
 		// Save checkpoint.
 		checkpoint := jobResultToCheckpoint(result)
-		_ = SaveCheckpoint(g.JobID, checkpoint)
+		if err := SaveCheckpoint(g.JobID, checkpoint); err != nil {
+		log.Printf("Warning: failed to save checkpoint for job %s: %v", g.JobID, err)
+	}
 
 		if onStageComplete != nil {
 			onStageComplete(sr)
@@ -213,7 +218,9 @@ func (g *TaskGraph) Resume(ctx context.Context, jobID string, onStageComplete fu
 
 	result.Complete = true
 	checkpoint := jobResultToCheckpoint(result)
-	_ = SaveCheckpoint(g.JobID, checkpoint)
+	if err := SaveCheckpoint(g.JobID, checkpoint); err != nil {
+		log.Printf("Warning: failed to save checkpoint for job %s: %v", g.JobID, err)
+	}
 
 	return result, nil
 }

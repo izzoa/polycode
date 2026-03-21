@@ -227,6 +227,97 @@ func main() {
 	skillCmd.AddCommand(skillListCmd, skillInstallCmd, skillRemoveCmd)
 	rootCmd.AddCommand(skillCmd)
 
+	// Session subcommands
+	sessionCmd := &cobra.Command{
+		Use:   "session",
+		Short: "Manage conversation sessions",
+	}
+
+	sessionListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List all saved sessions",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			sessions, err := config.ListSessions()
+			if err != nil {
+				return err
+			}
+			if len(sessions) == 0 {
+				fmt.Println("No saved sessions.")
+				return nil
+			}
+			fmt.Println("Saved sessions:")
+			for _, s := range sessions {
+				current := ""
+				if s.IsCurrent {
+					current = " (current)"
+				}
+				fmt.Printf("  %-20s  %d exchanges  updated %s%s\n",
+					s.Name, s.Exchanges,
+					s.UpdatedAt.Format("2006-01-02 15:04"), current)
+			}
+			return nil
+		},
+	}
+
+	sessionDeleteCmd := &cobra.Command{
+		Use:   "delete <name>",
+		Short: "Delete a saved session",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := config.DeleteSessionByName(args[0]); err != nil {
+				return err
+			}
+			fmt.Printf("Session %q deleted.\n", args[0])
+			return nil
+		},
+	}
+
+	sessionShowCmd := &cobra.Command{
+		Use:   "show [name]",
+		Short: "Show session details (default: current session)",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var s *config.Session
+			var err error
+			if len(args) > 0 {
+				s, _, err = config.LoadSessionByName(args[0])
+			} else {
+				s, err = config.LoadSession()
+			}
+			if err != nil {
+				return err
+			}
+			if s == nil {
+				fmt.Println("No session found.")
+				return nil
+			}
+			name := s.Name
+			if name == "" {
+				name = "(unnamed)"
+			}
+			fmt.Printf("Session: %s\n", name)
+			fmt.Printf("Updated: %s\n", s.UpdatedAt.Format("2006-01-02 15:04:05"))
+			fmt.Printf("Exchanges: %d\n\n", len(s.Exchanges))
+			for i, ex := range s.Exchanges {
+				fmt.Printf("--- Exchange %d ---\n", i+1)
+				prompt := ex.Prompt
+				if len(prompt) > 80 {
+					prompt = prompt[:77] + "..."
+				}
+				fmt.Printf("Prompt: %s\n", prompt)
+				resp := ex.ConsensusResponse
+				if len(resp) > 200 {
+					resp = resp[:197] + "..."
+				}
+				fmt.Printf("Response: %s\n\n", resp)
+			}
+			return nil
+		},
+	}
+
+	sessionCmd.AddCommand(sessionListCmd, sessionDeleteCmd, sessionShowCmd)
+	rootCmd.AddCommand(sessionCmd)
+
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}

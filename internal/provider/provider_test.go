@@ -241,7 +241,7 @@ func TestOpenAIToolCallAccumulation(t *testing.T) {
 	ch, err := p.Query(context.Background(), []Message{
 		{Role: RoleUser, Content: "read /tmp/x"},
 	}, QueryOpts{
-		Tools: []ToolDefinition{{Name: "file_read", Description: "Read a file", Parameters: map[string]interface{}{}}},
+		Tools: []ToolDefinition{{Name: "file_read", Description: "Read a file", Parameters: map[string]any{}}},
 	})
 	if err != nil {
 		t.Fatalf("Query error: %v", err)

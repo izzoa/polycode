@@ -35,6 +35,9 @@ type QueryStartMsg struct {
 	// all panels are set to loading (backward compat). If set, only the
 	// listed providers show as loading — others stay idle.
 	QueriedProviders []string
+	// RoutingReason is a human-readable explanation of why these providers
+	// were selected (e.g., "balanced: primary + best-scoring secondary").
+	RoutingReason string
 }
 
 // QueryDoneMsg signals that the full pipeline (fan-out + consensus) is complete.
@@ -331,6 +334,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.consensusRaw = ""
 		m.consensusRendered = ""
 		m.lastError = ""
+		m.routingReason = msg.RoutingReason
 		m.resetPanels()
 		if len(msg.QueriedProviders) > 0 {
 			m.markPanelsQueried(msg.QueriedProviders)
@@ -426,6 +430,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Used:    tokens.FormatTokenCount(u.InputTokens),
 				Percent: u.Percent(),
 				HasData: u.InputTokens > 0 || u.OutputTokens > 0,
+				Cost:    tokens.FormatCost(u.Cost),
 			}
 			if u.Limit > 0 {
 				td.Limit = tokens.FormatTokenCount(u.Limit)
@@ -505,8 +510,26 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.chatView.GotoBottom()
 		return m, nil
 	case "up":
-		// If textarea is empty, focus the tab bar
-		if strings.TrimSpace(m.textarea.Value()) == "" && !m.tabBarFocused {
+		if m.tabBarFocused {
+			break // let default handling happen
+		}
+		// If textarea is empty or browsing history, cycle backward
+		if strings.TrimSpace(m.textarea.Value()) == "" || m.inputHistIdx >= 0 {
+			if len(m.inputHistory) > 0 {
+				if m.inputHistIdx < 0 {
+					// Entering history mode — save current draft
+					m.inputDraft = m.textarea.Value()
+					m.inputHistIdx = len(m.inputHistory) - 1
+				} else if m.inputHistIdx > 0 {
+					m.inputHistIdx--
+				} else {
+					return m, nil // at oldest entry
+				}
+				m.textarea.Reset()
+				m.textarea.SetValue(m.inputHistory[m.inputHistIdx])
+				return m, nil
+			}
+			// No history — focus tab bar
 			m.tabBarFocused = true
 			m.textarea.Blur()
 			return m, nil
@@ -519,6 +542,21 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 				m.activeTab = 0
 			}
 			m.textarea.Focus()
+			return m, nil
+		}
+		// Cycle forward through input history
+		if m.inputHistIdx >= 0 {
+			if m.inputHistIdx < len(m.inputHistory)-1 {
+				m.inputHistIdx++
+				m.textarea.Reset()
+				m.textarea.SetValue(m.inputHistory[m.inputHistIdx])
+			} else {
+				// Back to draft
+				m.inputHistIdx = -1
+				m.textarea.Reset()
+				m.textarea.SetValue(m.inputDraft)
+				m.inputDraft = ""
+			}
 			return m, nil
 		}
 	case "left":
@@ -616,8 +654,8 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 					}
 					return m, nil
 				}
-				if strings.HasPrefix(prompt, "/mode ") {
-					modeName := strings.TrimSpace(strings.TrimPrefix(prompt, "/mode "))
+				if modeName, ok := strings.CutPrefix(prompt, "/mode "); ok {
+					modeName = strings.TrimSpace(modeName)
 					m.textarea.Reset()
 					switch modeName {
 					case "quick", "balanced", "thorough":
@@ -628,10 +666,10 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 					}
 					return m, nil
 				}
-				if strings.HasPrefix(prompt, "/memory") {
+				if rest, ok := strings.CutPrefix(prompt, "/memory"); ok {
 					m.textarea.Reset()
 					if m.onMemory != nil {
-						m.onMemory(strings.TrimSpace(strings.TrimPrefix(prompt, "/memory")))
+						m.onMemory(strings.TrimSpace(rest))
 					}
 					return m, nil
 				}
@@ -660,6 +698,31 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 					m.agentStages = nil
 					if m.onPlan != nil {
 						m.onPlan(request)
+					}
+					return m, nil
+				}
+				if strings.HasPrefix(prompt, "/sessions") || prompt == "/sessions" {
+					m.textarea.Reset()
+					if m.onSessions != nil {
+						rest := strings.TrimSpace(strings.TrimPrefix(prompt, "/sessions"))
+						parts := strings.SplitN(rest, " ", 2)
+						sub := ""
+						args := ""
+						if len(parts) > 0 {
+							sub = parts[0]
+						}
+						if len(parts) > 1 {
+							args = parts[1]
+						}
+						m.onSessions(sub, args)
+					}
+					return m, nil
+				}
+				if strings.HasPrefix(prompt, "/name ") {
+					name := strings.TrimSpace(strings.TrimPrefix(prompt, "/name "))
+					m.textarea.Reset()
+					if m.onSessions != nil && name != "" {
+						m.onSessions("name", name)
 					}
 					return m, nil
 				}
@@ -701,8 +764,8 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 					}
 					return m, nil
 				}
-				if strings.HasPrefix(prompt, "/export") {
-					path := strings.TrimSpace(strings.TrimPrefix(prompt, "/export"))
+				if rest, ok := strings.CutPrefix(prompt, "/export"); ok {
+					path := strings.TrimSpace(rest)
 					m.textarea.Reset()
 					if m.onExport != nil {
 						m.onExport(path)
@@ -711,6 +774,9 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 				}
 				m.currentPrompt = prompt
 				m.textarea.Reset()
+				m.inputHistory = append(m.inputHistory, prompt)
+				m.inputHistIdx = -1
+				m.inputDraft = ""
 				m.resetPanels()
 				if m.onSubmit != nil {
 					m.onSubmit(prompt)

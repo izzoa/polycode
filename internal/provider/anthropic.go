@@ -55,6 +55,13 @@ func (p *AnthropicProvider) Authenticate() error {
 	key, err := p.store.Get(p.name)
 	if err == nil && key != "" {
 		p.apiKey = key
+		// If OAuth, check for token expiry and auto-refresh.
+		if p.authMethod == "oauth" && p.oauthCfg != nil && auth.IsTokenExpired(*p.oauthCfg, p.store) {
+			if newToken, err := auth.TryRefresh(*p.oauthCfg, p.store); err == nil {
+				p.apiKey = newToken
+				_ = p.store.Set(p.name, newToken)
+			}
+		}
 		return nil
 	}
 
@@ -87,19 +94,40 @@ type anthropicRequest struct {
 	MaxTokens int               `json:"max_tokens"`
 	Stream    bool              `json:"stream"`
 	System    string            `json:"system,omitempty"`
+	Tools     []anthropicTool   `json:"tools,omitempty"`
+}
+
+// anthropicTool is a tool definition in the Anthropic format.
+type anthropicTool struct {
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	InputSchema any `json:"input_schema"`
 }
 
 type anthropicMsg struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string      `json:"role"`
+	Content any `json:"content"` // string or []anthropicContentBlock
+}
+
+// anthropicContentBlock is a content block in an Anthropic message.
+type anthropicContentBlock struct {
+	Type      string      `json:"type"`
+	Text      string      `json:"text,omitempty"`
+	ID        string      `json:"id,omitempty"`
+	Name      string      `json:"name,omitempty"`
+	Input     any `json:"input,omitempty"`
+	ToolUseID string      `json:"tool_use_id,omitempty"`
+	Content   string      `json:"content,omitempty"`
 }
 
 // anthropicSSEEvent represents a parsed SSE event from the Anthropic stream.
 type anthropicSSEEvent struct {
-	Type    string                `json:"type"`
-	Delta   json.RawMessage       `json:"delta,omitempty"`
-	Message *anthropicMessageMeta `json:"message,omitempty"`
-	Usage   *anthropicUsage       `json:"usage,omitempty"`
+	Type         string                      `json:"type"`
+	Index        int                         `json:"index,omitempty"`
+	Delta        json.RawMessage             `json:"delta,omitempty"`
+	ContentBlock *anthropicContentBlockStart  `json:"content_block,omitempty"`
+	Message      *anthropicMessageMeta       `json:"message,omitempty"`
+	Usage        *anthropicUsage             `json:"usage,omitempty"`
 }
 
 type anthropicMessageMeta struct {
@@ -112,8 +140,17 @@ type anthropicUsage struct {
 }
 
 type anthropicDelta struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type        string `json:"type"`
+	Text        string `json:"text,omitempty"`
+	PartialJSON string `json:"partial_json,omitempty"`
+}
+
+// anthropicContentBlockStart is the content_block in a content_block_start event.
+type anthropicContentBlockStart struct {
+	Type  string `json:"type"`
+	ID    string `json:"id,omitempty"`
+	Name  string `json:"name,omitempty"`
+	Text  string `json:"text,omitempty"`
 }
 
 func (p *AnthropicProvider) Query(ctx context.Context, messages []Message, opts QueryOpts) (<-chan StreamChunk, error) {
@@ -133,8 +170,52 @@ func (p *AnthropicProvider) Query(ctx context.Context, messages []Message, opts 
 			systemPrompt += m.Content
 			continue
 		}
+
+		// Handle tool result messages with proper content blocks.
+		if m.Role == RoleTool && m.ToolCallID != "" {
+			convMsgs = append(convMsgs, anthropicMsg{
+				Role: "user",
+				Content: []anthropicContentBlock{{
+					Type:      "tool_result",
+					ToolUseID: m.ToolCallID,
+					Content:   m.Content,
+				}},
+			})
+			continue
+		}
+
+		// Handle assistant messages with tool calls.
+		if m.Role == RoleAssistant && len(m.ToolCalls) > 0 {
+			var blocks []anthropicContentBlock
+			if m.Content != "" {
+				blocks = append(blocks, anthropicContentBlock{
+					Type: "text",
+					Text: m.Content,
+				})
+			}
+			for _, tc := range m.ToolCalls {
+				var input any
+				if tc.Arguments != "" {
+					_ = json.Unmarshal([]byte(tc.Arguments), &input)
+				}
+				if input == nil {
+					input = map[string]any{}
+				}
+				blocks = append(blocks, anthropicContentBlock{
+					Type:  "tool_use",
+					ID:    tc.ID,
+					Name:  tc.Name,
+					Input: input,
+				})
+			}
+			convMsgs = append(convMsgs, anthropicMsg{
+				Role:    "assistant",
+				Content: blocks,
+			})
+			continue
+		}
+
 		role := string(m.Role)
-		// Anthropic doesn't have a "tool" role — map to "user" with context
 		if m.Role == RoleTool {
 			role = "user"
 		}
@@ -150,6 +231,15 @@ func (p *AnthropicProvider) Query(ctx context.Context, messages []Message, opts 
 		MaxTokens: maxTokens,
 		Stream:    true,
 		System:    systemPrompt,
+	}
+
+	// Map tool definitions if provided.
+	for _, t := range opts.Tools {
+		reqBody.Tools = append(reqBody.Tools, anthropicTool{
+			Name:        t.Name,
+			Description: t.Description,
+			InputSchema: t.Parameters,
+		})
 	}
 
 	body, err := json.Marshal(reqBody)
@@ -188,6 +278,14 @@ func (p *AnthropicProvider) readSSE(ctx context.Context, body io.ReadCloser, ch 
 
 	var inputTokens, outputTokens int
 
+	// Track tool_use blocks being streamed: index → {id, name, args}
+	type toolUseBuf struct {
+		id   string
+		name string
+		args strings.Builder
+	}
+	var toolBufs []toolUseBuf
+
 	scanner := bufio.NewScanner(body)
 	for scanner.Scan() {
 		select {
@@ -220,14 +318,31 @@ func (p *AnthropicProvider) readSSE(ctx context.Context, body io.ReadCloser, ch 
 			if evt.Message != nil && evt.Message.Usage != nil {
 				inputTokens = evt.Message.Usage.InputTokens
 			}
+		case "content_block_start":
+			// A new content block is starting. If it's a tool_use block,
+			// record its ID and name for argument accumulation.
+			if evt.ContentBlock != nil && evt.ContentBlock.Type == "tool_use" {
+				for evt.Index >= len(toolBufs) {
+					toolBufs = append(toolBufs, toolUseBuf{})
+				}
+				toolBufs[evt.Index] = toolUseBuf{
+					id:   evt.ContentBlock.ID,
+					name: evt.ContentBlock.Name,
+				}
+			}
 		case "content_block_delta":
 			var delta anthropicDelta
 			if err := json.Unmarshal(evt.Delta, &delta); err != nil {
 				ch <- StreamChunk{Error: fmt.Errorf("anthropic: parse delta: %w", err)}
 				return
 			}
-			if delta.Text != "" {
+			if delta.Type == "text_delta" && delta.Text != "" {
 				ch <- StreamChunk{Delta: delta.Text}
+			}
+			if delta.Type == "input_json_delta" && delta.PartialJSON != "" {
+				if evt.Index < len(toolBufs) {
+					toolBufs[evt.Index].args.WriteString(delta.PartialJSON)
+				}
 			}
 		case "message_delta":
 			// message_delta carries output token count
@@ -235,7 +350,23 @@ func (p *AnthropicProvider) readSSE(ctx context.Context, body io.ReadCloser, ch 
 				outputTokens = evt.Usage.OutputTokens
 			}
 		case "message_stop":
-			ch <- StreamChunk{Done: true, InputTokens: inputTokens, OutputTokens: outputTokens}
+			// Assemble accumulated tool calls.
+			var calls []ToolCall
+			for i, tb := range toolBufs {
+				if tb.name == "" {
+					continue
+				}
+				id := tb.id
+				if id == "" {
+					id = fmt.Sprintf("anthropic_call_%d", i)
+				}
+				calls = append(calls, ToolCall{
+					ID:        id,
+					Name:      tb.name,
+					Arguments: tb.args.String(),
+				})
+			}
+			ch <- StreamChunk{Done: true, ToolCalls: calls, InputTokens: inputTokens, OutputTokens: outputTokens}
 			return
 		case "error":
 			ch <- StreamChunk{Error: fmt.Errorf("anthropic: stream error: %s", string(evt.Delta))}

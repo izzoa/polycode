@@ -85,7 +85,7 @@ func RunDeviceFlow(cfg DeviceFlowConfig, store Store) (string, error) {
 			return "", fmt.Errorf("token error: %s — %s", token.Error, token.ErrorDesc)
 		}
 
-		// Success — store the token.
+		// Success — store the token and metadata.
 		if err := store.Set(cfg.ClientID, token.AccessToken); err != nil {
 			return "", fmt.Errorf("storing access token: %w", err)
 		}
@@ -93,6 +93,10 @@ func RunDeviceFlow(cfg DeviceFlowConfig, store Store) (string, error) {
 			if err := store.Set(cfg.ClientID+":refresh", token.RefreshToken); err != nil {
 				return "", fmt.Errorf("storing refresh token: %w", err)
 			}
+		}
+		if token.ExpiresIn > 0 {
+			expiresAt := time.Now().Add(time.Duration(token.ExpiresIn) * time.Second)
+			_ = store.Set(cfg.ClientID+":expires_at", expiresAt.Format(time.RFC3339))
 		}
 
 		return token.AccessToken, nil
@@ -136,8 +140,36 @@ func RefreshToken(cfg DeviceFlowConfig, store Store, refreshToken string) (strin
 			return "", fmt.Errorf("storing rotated refresh token: %w", err)
 		}
 	}
+	if token.ExpiresIn > 0 {
+		expiresAt := time.Now().Add(time.Duration(token.ExpiresIn) * time.Second)
+		_ = store.Set(cfg.ClientID+":expires_at", expiresAt.Format(time.RFC3339))
+	}
 
 	return token.AccessToken, nil
+}
+
+// IsTokenExpired checks if the OAuth token for the given client ID has expired
+// (or will expire within the next 60 seconds). Returns false if no expiry is stored.
+func IsTokenExpired(cfg DeviceFlowConfig, store Store) bool {
+	expiresStr, err := store.Get(cfg.ClientID + ":expires_at")
+	if err != nil || expiresStr == "" {
+		return false // no expiry info — assume still valid
+	}
+	expiresAt, err := time.Parse(time.RFC3339, expiresStr)
+	if err != nil {
+		return false
+	}
+	return time.Now().Add(60 * time.Second).After(expiresAt)
+}
+
+// TryRefresh attempts to refresh the OAuth token if a refresh token exists.
+// Returns the new access token, or an error if refresh is not possible.
+func TryRefresh(cfg DeviceFlowConfig, store Store) (string, error) {
+	refreshToken, err := store.Get(cfg.ClientID + ":refresh")
+	if err != nil || refreshToken == "" {
+		return "", fmt.Errorf("no refresh token available — re-authenticate with 'polycode auth login'")
+	}
+	return RefreshToken(cfg, store, refreshToken)
 }
 
 // ---------------------------------------------------------------------------
