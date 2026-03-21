@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-03-21
+
+### Fixed
+- **TUI freeze on `/mode` and `/save`**: `program.Send()` was called synchronously from inside Bubble Tea's `Update` via handler callbacks, deadlocking the event loop. All synchronous callback paths (`onModeChange`, `onSave`) now dispatch via goroutines. Found by Codex code review.
+- **Race conditions on shared state**: `currentMode` protected by mutex with query-time snapshot; `yoloEnabled` changed from `bool` to `atomic.Bool`. Prevents stale routing/approval state when mode is changed mid-query.
+- **Command palette no longer blocks typing**: Changed from modal overlay (intercepted all keys) to non-modal suggestion panel. Typing `/mode thorough` now works — text goes into the textarea normally, palette shows filtered suggestions alongside. Tab accepts the first match.
+
 ## [1.11.0] - 2026-03-21
 
 ### Added
