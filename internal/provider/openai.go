@@ -81,11 +81,12 @@ func (p *OpenAIProvider) Validate() error {
 
 // openaiRequest is the request body for the OpenAI Chat Completions API.
 type openaiRequest struct {
-	Model         string              `json:"model"`
-	Messages      []openaiMsg         `json:"messages"`
-	Stream        bool                `json:"stream"`
-	StreamOptions *openaiStreamOpts   `json:"stream_options,omitempty"`
-	Tools         []openaiTool        `json:"tools,omitempty"`
+	Model            string              `json:"model"`
+	Messages         []openaiMsg         `json:"messages"`
+	Stream           bool                `json:"stream"`
+	StreamOptions    *openaiStreamOpts   `json:"stream_options,omitempty"`
+	Tools            []openaiTool        `json:"tools,omitempty"`
+	ReasoningEffort  string              `json:"reasoning_effort,omitempty"`
 }
 
 type openaiStreamOpts struct {
@@ -185,10 +186,11 @@ func (p *OpenAIProvider) Query(ctx context.Context, messages []Message, opts Que
 	}
 
 	reqBody := openaiRequest{
-		Model:         p.model,
-		Messages:      msgs,
-		Stream:        true,
-		StreamOptions: &openaiStreamOpts{IncludeUsage: true},
+		Model:           p.model,
+		Messages:        msgs,
+		Stream:          true,
+		StreamOptions:   &openaiStreamOpts{IncludeUsage: true},
+		ReasoningEffort: string(opts.ReasoningEffort),
 	}
 
 	// Map tool definitions if provided.

@@ -662,9 +662,21 @@ func startTUI(cfg *config.Config) error {
 				tools = append(tools, mcpClient.ToToolDefinitions()...)
 			}
 			tools = append(tools, skillReg.ToToolDefinitions()...)
+			// Set reasoning effort based on mode
+			var reasoningEffort provider.ReasoningEffort
+			switch currentMode {
+			case routing.ModeQuick:
+				reasoningEffort = provider.ReasoningLow
+			case routing.ModeBalanced:
+				reasoningEffort = provider.ReasoningMedium
+			case routing.ModeThorough:
+				reasoningEffort = provider.ReasoningHigh
+			}
+
 			opts := provider.QueryOpts{
-				MaxTokens: 4096,
-				Tools:     tools,
+				MaxTokens:       4096,
+				Tools:           tools,
+				ReasoningEffort: reasoningEffort,
 			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), cfg.Consensus.Timeout+30*time.Second)

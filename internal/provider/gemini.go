@@ -87,8 +87,19 @@ func (p *GeminiProvider) Validate() error {
 
 // geminiRequest is the request body for the Gemini streaming API.
 type geminiRequest struct {
-	Contents []geminiContent `json:"contents"`
-	Tools    []geminiToolDef `json:"tools,omitempty"`
+	Contents         []geminiContent      `json:"contents"`
+	Tools            []geminiToolDef      `json:"tools,omitempty"`
+	GenerationConfig *geminiGenerationCfg `json:"generationConfig,omitempty"`
+}
+
+// geminiGenerationCfg holds generation parameters for Gemini.
+type geminiGenerationCfg struct {
+	ThinkingConfig *geminiThinkingConfig `json:"thinkingConfig,omitempty"`
+}
+
+// geminiThinkingConfig controls Gemini's thinking/reasoning feature.
+type geminiThinkingConfig struct {
+	ThinkingBudget int `json:"thinkingBudget"`
 }
 
 type geminiContent struct {
@@ -213,6 +224,22 @@ func (p *GeminiProvider) Query(ctx context.Context, messages []Message, opts Que
 
 	reqBody := geminiRequest{
 		Contents: contents,
+	}
+
+	// Map reasoning effort to Gemini's thinking config.
+	if opts.ReasoningEffort != "" {
+		budgetTokens := 4096
+		switch opts.ReasoningEffort {
+		case ReasoningMedium:
+			budgetTokens = 10000
+		case ReasoningHigh:
+			budgetTokens = 32000
+		}
+		reqBody.GenerationConfig = &geminiGenerationCfg{
+			ThinkingConfig: &geminiThinkingConfig{
+				ThinkingBudget: budgetTokens,
+			},
+		}
 	}
 
 	// Map tool definitions if provided.

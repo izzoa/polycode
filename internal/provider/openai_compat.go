@@ -82,10 +82,11 @@ func (p *OpenAICompatProvider) Query(ctx context.Context, messages []Message, op
 	}
 
 	reqBody := openaiRequest{
-		Model:         p.model,
-		Messages:      msgs,
-		Stream:        true,
-		StreamOptions: &openaiStreamOpts{IncludeUsage: true},
+		Model:           p.model,
+		Messages:        msgs,
+		Stream:          true,
+		StreamOptions:   &openaiStreamOpts{IncludeUsage: true},
+		ReasoningEffort: string(opts.ReasoningEffort),
 	}
 
 	for _, t := range opts.Tools {

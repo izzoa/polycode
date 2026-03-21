@@ -89,12 +89,19 @@ func (p *AnthropicProvider) Validate() error {
 
 // anthropicRequest is the request body for the Anthropic Messages API.
 type anthropicRequest struct {
-	Model     string            `json:"model"`
-	Messages  []anthropicMsg    `json:"messages"`
-	MaxTokens int               `json:"max_tokens"`
-	Stream    bool              `json:"stream"`
-	System    string            `json:"system,omitempty"`
-	Tools     []anthropicTool   `json:"tools,omitempty"`
+	Model     string              `json:"model"`
+	Messages  []anthropicMsg      `json:"messages"`
+	MaxTokens int                 `json:"max_tokens"`
+	Stream    bool                `json:"stream"`
+	System    string              `json:"system,omitempty"`
+	Tools     []anthropicTool     `json:"tools,omitempty"`
+	Thinking  *anthropicThinking  `json:"thinking,omitempty"`
+}
+
+// anthropicThinking controls Anthropic's extended thinking feature.
+type anthropicThinking struct {
+	Type         string `json:"type"`
+	BudgetTokens int    `json:"budget_tokens"`
 }
 
 // anthropicTool is a tool definition in the Anthropic format.
@@ -231,6 +238,25 @@ func (p *AnthropicProvider) Query(ctx context.Context, messages []Message, opts 
 		MaxTokens: maxTokens,
 		Stream:    true,
 		System:    systemPrompt,
+	}
+
+	// Map reasoning effort to Anthropic's thinking feature.
+	if opts.ReasoningEffort != "" {
+		budgetTokens := 4096 // default for low
+		switch opts.ReasoningEffort {
+		case ReasoningMedium:
+			budgetTokens = 10000
+		case ReasoningHigh:
+			budgetTokens = 32000
+		}
+		reqBody.Thinking = &anthropicThinking{
+			Type:         "enabled",
+			BudgetTokens: budgetTokens,
+		}
+		// Anthropic requires max_tokens to be larger than budget_tokens
+		if reqBody.MaxTokens < budgetTokens+1024 {
+			reqBody.MaxTokens = budgetTokens + 1024
+		}
 	}
 
 	// Map tool definitions if provided.

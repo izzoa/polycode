@@ -58,11 +58,23 @@ type ToolDefinition struct {
 	Parameters  any `json:"parameters"`
 }
 
+// ReasoningEffort controls how much "thinking" a model does before responding.
+// Not all models support this — providers that don't will ignore it.
+type ReasoningEffort string
+
+const (
+	ReasoningOff    ReasoningEffort = ""       // no reasoning requested (model default)
+	ReasoningLow    ReasoningEffort = "low"    // minimal reasoning
+	ReasoningMedium ReasoningEffort = "medium" // standard reasoning
+	ReasoningHigh   ReasoningEffort = "high"   // deep reasoning
+)
+
 // QueryOpts holds options for a query.
 type QueryOpts struct {
-	MaxTokens   int              `json:"max_tokens,omitempty"`
-	Temperature float64          `json:"temperature,omitempty"`
-	Tools       []ToolDefinition `json:"tools,omitempty"`
+	MaxTokens        int              `json:"max_tokens,omitempty"`
+	Temperature      float64          `json:"temperature,omitempty"`
+	Tools            []ToolDefinition `json:"tools,omitempty"`
+	ReasoningEffort  ReasoningEffort  `json:"reasoning_effort,omitempty"`
 }
 
 // Provider is the interface that all LLM provider adapters must implement.
