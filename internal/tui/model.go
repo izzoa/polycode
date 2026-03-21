@@ -81,6 +81,13 @@ type agentStageDisplay struct {
 	Workers []agentWorkerDisplay
 }
 
+// slashCommand defines a command available in the command palette.
+type slashCommand struct {
+	Name        string // e.g., "/clear"
+	Description string // e.g., "Clear conversation and reset context"
+	Shortcut    string // e.g., "ctrl+s" (optional)
+}
+
 // Exchange represents a completed prompt/response pair in history.
 type Exchange struct {
 	Prompt             string
@@ -143,11 +150,12 @@ type Model struct {
 	confirmDescription string
 	confirmResponseCh  chan bool
 
-	// Slash command autocomplete
-	slashCommands   []string // all available commands
-	slashMatches    []string // current matching commands (shown as hints)
-	slashCompIdx    int      // current selected match for Tab accept
-	slashCompPrefix string   // the prefix being completed
+	// Command palette (triggered by /)
+	slashCommands  []slashCommand // all available commands with descriptions
+	paletteOpen    bool           // true when command palette overlay is visible
+	paletteFilter  string         // current filter text
+	paletteMatches []slashCommand // filtered commands
+	paletteCursor  int            // selected item index
 
 	// Tool execution status
 	toolStatus string // e.g., "Reading main.go..." — shown in consensus panel during tool exec
@@ -328,12 +336,21 @@ func NewModel(providerNames []string, primaryName string, version string) Model 
 		styles:         defaultStyles(),
 		mode:           viewChat,
 		wizardInput:    ti,
-		slashCommands: []string{
-			"/clear", "/exit", "/export", "/help",
-			"/memory", "/mode", "/name ", "/plan ", "/quit",
-			"/save", "/sessions", "/settings", "/skill", "/yolo",
+		slashCommands: []slashCommand{
+			{"/clear", "Clear conversation and reset context", ""},
+			{"/export [path]", "Export session as JSON", ""},
+			{"/help", "Show keyboard shortcuts", "?"},
+			{"/memory", "View repo memory", ""},
+			{"/mode <name>", "Switch mode: quick, balanced, thorough", ""},
+			{"/name <name>", "Name the current session", ""},
+			{"/plan <request>", "Run multi-model agent team", ""},
+			{"/save", "Save session to disk", ""},
+			{"/sessions", "List and manage sessions", ""},
+			{"/settings", "Open provider settings", "ctrl+s"},
+			{"/skill", "Manage installed skills", ""},
+			{"/yolo", "Toggle auto-approve mode", ""},
+			{"/exit", "Quit polycode", "ctrl+c"},
 		},
-		slashCompIdx:    -1,
 		modePickerItems: []string{"quick", "balanced", "thorough"},
 	}
 }

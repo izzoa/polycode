@@ -85,19 +85,9 @@ func (m Model) renderChat() string {
 		sections = append(sections, m.renderProvenance())
 	}
 
-	// Slash command completion hints (shown above input when typing /)
-	if len(m.slashMatches) > 0 && !m.querying {
-		hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
-		selectedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("86")).Bold(true)
-		var hints []string
-		for i, cmd := range m.slashMatches {
-			if i == m.slashCompIdx {
-				hints = append(hints, selectedStyle.Render(cmd))
-			} else {
-				hints = append(hints, hintStyle.Render(cmd))
-			}
-		}
-		sections = append(sections, "  "+strings.Join(hints, hintStyle.Render("  ")))
+	// Command palette overlay (triggered by /)
+	if m.paletteOpen {
+		sections = append(sections, m.renderCommandPalette())
 	}
 
 	// Mode picker overlay
@@ -496,6 +486,67 @@ func (m Model) renderModePicker() string {
 
 	lines = append(lines, "")
 	lines = append(lines, hintStyle.Render("  ↑/↓ navigate  Enter select  Esc cancel"))
+
+	border := m.styles.InputBorder.Width(m.width - 4)
+	return border.Render(strings.Join(lines, "\n"))
+}
+
+// renderCommandPalette renders the slash command palette overlay.
+func (m Model) renderCommandPalette() string {
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("86"))
+	selectedStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("82")).Background(lipgloss.Color("236"))
+	normalStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
+	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+	shortcutStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
+	filterStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+
+	var lines []string
+	lines = append(lines, titleStyle.Render("Commands")+" "+lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(strings.Repeat("/", 50)))
+	lines = append(lines, "")
+
+	// Filter input
+	filterDisplay := m.paletteFilter
+	if filterDisplay == "" {
+		filterDisplay = hintStyle.Render("Type to filter")
+	} else {
+		filterDisplay = filterStyle.Render(filterDisplay)
+	}
+	lines = append(lines, "  > "+filterDisplay)
+	lines = append(lines, "")
+
+	// Command list
+	if len(m.paletteMatches) == 0 {
+		lines = append(lines, "  "+descStyle.Render("No matching commands"))
+	} else {
+		for i, cmd := range m.paletteMatches {
+			cursor := "  "
+			style := normalStyle
+			if i == m.paletteCursor {
+				cursor = "▸ "
+				style = selectedStyle
+			}
+
+			line := cursor + style.Render(cmd.Name)
+
+			// Pad name to align descriptions
+			padding := 22 - len(cmd.Name)
+			if padding < 2 {
+				padding = 2
+			}
+			line += strings.Repeat(" ", padding)
+			line += descStyle.Render(cmd.Description)
+
+			if cmd.Shortcut != "" {
+				line += "  " + shortcutStyle.Render(cmd.Shortcut)
+			}
+
+			lines = append(lines, line)
+		}
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, "  "+hintStyle.Render("↑/↓ choose  enter confirm  esc cancel"))
 
 	border := m.styles.InputBorder.Width(m.width - 4)
 	return border.Render(strings.Join(lines, "\n"))

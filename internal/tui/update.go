@@ -237,6 +237,60 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Command palette intercepts all keys when open
+		if m.paletteOpen {
+			switch msg.String() {
+			case "up", "k":
+				if m.paletteCursor > 0 {
+					m.paletteCursor--
+				}
+			case "down", "j":
+				if m.paletteCursor < len(m.paletteMatches)-1 {
+					m.paletteCursor++
+				}
+			case "enter":
+				if m.paletteCursor < len(m.paletteMatches) {
+					selected := m.paletteMatches[m.paletteCursor]
+					m.paletteOpen = false
+					m.textarea.Focus()
+					// Put the command in the textarea and submit it
+					m.textarea.SetValue(selected.Name)
+					// If the command takes arguments (has a space in the name),
+					// just fill in the prefix and let the user type the rest
+					if strings.Contains(selected.Name, " <") || strings.Contains(selected.Name, " [") {
+						// Strip the placeholder part for the textarea
+						parts := strings.SplitN(selected.Name, " ", 2)
+						m.textarea.SetValue(parts[0] + " ")
+						return m, nil
+					}
+					// Otherwise auto-submit the command
+					return m.submitCurrentInput()
+				}
+			case "esc", "ctrl+c":
+				m.paletteOpen = false
+				m.textarea.Focus()
+			case "backspace":
+				if len(m.paletteFilter) > 0 {
+					m.paletteFilter = m.paletteFilter[:len(m.paletteFilter)-1]
+					m.paletteMatches = m.filterPaletteCommands(m.paletteFilter)
+					m.paletteCursor = 0
+				} else {
+					// Backspace on empty filter closes palette
+					m.paletteOpen = false
+					m.textarea.Focus()
+				}
+			default:
+				// Append typed characters to filter
+				key := msg.String()
+				if len(key) == 1 && key[0] >= ' ' && key[0] <= '~' {
+					m.paletteFilter += key
+					m.paletteMatches = m.filterPaletteCommands(m.paletteFilter)
+					m.paletteCursor = 0
+				}
+			}
+			return m, nil
+		}
+
 		// Mode picker overlay intercepts all keys when open
 		if m.modePickerOpen {
 			yoloIdx := len(m.modePickerItems) // yolo is the last item
@@ -453,18 +507,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.textarea, cmd = m.textarea.Update(msg)
 		cmds = append(cmds, cmd)
 
-		// Update slash command completions as user types
-		input := strings.TrimSpace(m.textarea.Value())
-		if strings.HasPrefix(input, "/") && len(input) > 1 {
-			m.slashMatches = nil
-			m.slashCompIdx = 0
-			for _, cmd := range m.slashCommands {
-				if strings.HasPrefix(cmd, input) {
-					m.slashMatches = append(m.slashMatches, cmd)
-				}
-			}
-		} else {
-			m.slashMatches = nil
+		// Check if user just typed "/" — open command palette
+		input := m.textarea.Value()
+		if input == "/" && !m.paletteOpen {
+			m.paletteOpen = true
+			m.paletteFilter = ""
+			m.paletteCursor = 0
+			m.paletteMatches = m.filterPaletteCommands("")
+			m.textarea.Reset()
 		}
 	}
 
@@ -596,16 +646,6 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 	case "tab":
-		// Tab accepts the current slash completion if one is shown
-		input := strings.TrimSpace(m.textarea.Value())
-		if strings.HasPrefix(input, "/") && !m.querying && len(m.slashMatches) > 0 {
-			m.textarea.Reset()
-			m.textarea.SetValue(m.slashMatches[m.slashCompIdx])
-			m.slashMatches = nil
-			m.slashCompPrefix = ""
-			return m, nil
-		}
-		// Otherwise toggle provider panels
 		m.showIndividual = !m.showIndividual
 		return m, nil
 	case "p":
@@ -994,6 +1034,29 @@ func (m Model) buildChatLog() string {
 	}
 
 	return result
+}
+
+// filterPaletteCommands returns commands matching the given filter string.
+// Matching is case-insensitive and checks both name and description.
+func (m Model) filterPaletteCommands(filter string) []slashCommand {
+	if filter == "" {
+		return append([]slashCommand{}, m.slashCommands...)
+	}
+	lower := strings.ToLower(filter)
+	var matches []slashCommand
+	for _, cmd := range m.slashCommands {
+		if strings.Contains(strings.ToLower(cmd.Name), lower) ||
+			strings.Contains(strings.ToLower(cmd.Description), lower) {
+			matches = append(matches, cmd)
+		}
+	}
+	return matches
+}
+
+// submitCurrentInput submits whatever is in the textarea as if the user pressed Enter.
+func (m Model) submitCurrentInput() (Model, tea.Cmd) {
+	// Synthesize an Enter key event to reuse the full command routing logic
+	return m.updateChat(tea.KeyMsg{Type: tea.KeyEnter})
 }
 
 func (m Model) SendProviderChunk(name, delta string, done bool, err error) tea.Cmd {
