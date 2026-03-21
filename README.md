@@ -122,15 +122,17 @@ tools:
     handler: git diff --cached
 ```
 
-### Adaptive Routing
+### Operating Modes
 
-Three operating modes control cost/quality trade-offs:
+All modes query every configured provider. The mode controls **synthesis depth** and **reasoning effort**:
 
-- **`quick`** — primary model only, no consensus (lowest cost)
-- **`balanced`** — primary + best-scoring secondary (default)
-- **`thorough`** — all healthy providers, full consensus
+| Mode | Synthesis | Reasoning |
+|------|-----------|-----------|
+| **`quick`** | Concise, direct answer — no structured sections | Low |
+| **`balanced`** | Structured synthesis — confidence, agreements, minority reports, evidence | Medium |
+| **`thorough`** | Deep analysis — step-by-step reasoning, trade-offs, verification, alternatives | High |
 
-Switch modes with `/mode quick`, `/mode balanced`, or `/mode thorough`. The router uses telemetry (latency, error rate, user feedback) to score providers and selects the best combination per query.
+Switch modes with `/mode quick`, `/mode balanced`, or `/mode thorough`, or open the mode picker from the tab bar. Reasoning effort maps to each provider's native parameter (Anthropic `thinking`, OpenAI `reasoning_effort`, Gemini `thinkingBudget`).
 
 ### Hooks, Permissions, and MCP
 

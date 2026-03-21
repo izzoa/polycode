@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-03-21
+
+### Added
+- **Command palette**: Typing `/` opens a bordered overlay with all available commands, descriptions, and shortcuts. Supports fuzzy filtering by typing, arrow key navigation, and auto-submit for argument-free commands.
+- **Reasoning effort control**: Modes now set provider-level reasoning parameters — quick (low), balanced (medium), thorough (high). Maps to Anthropic `thinking.budget_tokens`, OpenAI `reasoning_effort`, and Gemini `thinkingConfig.thinkingBudget`. Models without reasoning support silently ignore the parameter.
+
+### Changed
+- **All modes query all providers**: quick/balanced/thorough no longer control which providers are queried — all healthy providers are always fanned out. Modes now control synthesis depth (concise vs structured vs deep analysis with step-by-step reasoning, trade-offs, and cross-model verification).
+- **Tool loop has no iteration limit**: The tool loop runs until the model stops issuing tool calls or the 5-minute timeout expires, rather than capping at 10 iterations.
+
+### Fixed
+- **Verification only runs after file_write**: Previously ran after every tool loop; now skips when no files were written or when the tool loop errored out.
+- **Arrow-up tab bar focus**: Pressing up at the oldest input history entry now exits history mode and focuses the tab bar instead of getting stuck.
+
 ## [1.10.0] - 2026-03-21
 
 ### Added
