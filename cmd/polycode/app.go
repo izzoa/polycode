@@ -740,9 +740,17 @@ func startTUI(cfg *config.Config) error {
 				synthesisMode,
 			)
 
+			// Accumulate fan-out text per provider from the live (untruncated) stream.
+			// The chunk callback fires from concurrent goroutines, so this needs a mutex.
+			var fanoutMu sync.Mutex
+			fanoutLiveText := make(map[string]string)
+
 			// Stream individual provider output to TUI tabs in real-time.
 			queryPipeline.SetChunkCallback(func(providerID string, chunk provider.StreamChunk) {
 				if chunk.Error != nil {
+					fanoutMu.Lock()
+					fanoutLiveText[providerID] += "[ERROR: " + chunk.Error.Error() + "]"
+					fanoutMu.Unlock()
 					program.Send(tui.ProviderTraceMsg{
 						ProviderName: providerID,
 						Phase:        tui.PhaseFanout,
@@ -759,6 +767,9 @@ func startTUI(cfg *config.Config) error {
 						})
 					}
 				} else if chunk.Delta != "" {
+					fanoutMu.Lock()
+					fanoutLiveText[providerID] += chunk.Delta
+					fanoutMu.Unlock()
 					program.Send(tui.ProviderTraceMsg{
 						ProviderName: providerID,
 						Phase:        tui.PhaseFanout,
@@ -847,20 +858,27 @@ func startTUI(cfg *config.Config) error {
 				providerTraces[providerID] = sections
 			}
 
-			// Capture fan-out responses, errors, and skips into provider traces
+			// Capture fan-out traces from the live (untruncated) stream.
+			// fanoutLiveText was populated by the concurrent chunk callback
+			// and is safe to read now — FanOut has returned.
+			for id, text := range fanoutLiveText {
+				if text != "" {
+					appendTrace(id, "fanout", text)
+				}
+			}
+			// Also record skipped providers (not covered by the chunk callback).
 			if fanOutResult != nil {
-				for id, resp := range fanOutResult.Responses {
-					if resp != "" {
-						appendTrace(id, "fanout", resp)
-					}
-				}
-				for id, provErr := range fanOutResult.Errors {
-					appendTrace(id, "fanout", "[ERROR: "+provErr.Error()+"]")
-				}
 				for _, id := range fanOutResult.Skipped {
 					appendTrace(id, "fanout", "[skipped: context limit exceeded]")
 				}
 			}
+
+			// Detect primary-only direct-response path: if only the primary
+			// responded successfully, the pipeline returns the primary's fan-out
+			// text as a "synthesis" stream. We must not duplicate it as synthesis.
+			primaryOnlyDirect := fanOutResult != nil &&
+				len(fanOutResult.Responses) == 1 &&
+				fanOutResult.Responses[primary.ID()] != ""
 
 			// Stream consensus output, accumulate response, detect tool calls.
 			// Mirror synthesis chunks into the primary provider tab.
@@ -871,24 +889,30 @@ func startTUI(cfg *config.Config) error {
 			for chunk := range stream {
 				if chunk.Error != nil {
 					program.Send(tui.ConsensusChunkMsg{Error: chunk.Error})
-					program.Send(tui.ProviderTraceMsg{
-						ProviderName: primaryID,
-						Phase:        tui.PhaseSynthesis,
-						Error:        chunk.Error,
-					})
-					appendTrace(primaryID, "synthesis", "[ERROR: "+chunk.Error.Error()+"]")
+					if !primaryOnlyDirect {
+						program.Send(tui.ProviderTraceMsg{
+							ProviderName: primaryID,
+							Phase:        tui.PhaseSynthesis,
+							Error:        chunk.Error,
+						})
+						appendTrace(primaryID, "synthesis", "[ERROR: "+chunk.Error.Error()+"]")
+					}
 					break
 				}
 				// Process Delta before Done — a chunk can carry both (e.g. direct-response path).
 				if chunk.Delta != "" {
 					fullResponse += chunk.Delta
 					program.Send(tui.ConsensusChunkMsg{Delta: chunk.Delta})
-					program.Send(tui.ProviderTraceMsg{
-						ProviderName: primaryID,
-						Phase:        tui.PhaseSynthesis,
-						Delta:        chunk.Delta,
-					})
-					appendTrace(primaryID, "synthesis", chunk.Delta)
+					// Only mirror as synthesis when actual synthesis occurred.
+					// In primary-only mode the stream just echoes the fan-out text.
+					if !primaryOnlyDirect {
+						program.Send(tui.ProviderTraceMsg{
+							ProviderName: primaryID,
+							Phase:        tui.PhaseSynthesis,
+							Delta:        chunk.Delta,
+						})
+						appendTrace(primaryID, "synthesis", chunk.Delta)
+					}
 				}
 				if chunk.Done {
 					consensusUsage = tokens.Usage{
@@ -898,7 +922,7 @@ func startTUI(cfg *config.Config) error {
 					pendingToolCalls = chunk.ToolCalls
 					if len(pendingToolCalls) == 0 {
 						program.Send(tui.ConsensusChunkMsg{Done: true})
-						// No tool calls follow — mark primary done
+						// Mark primary done — in direct mode, fan-out was the only phase
 						program.Send(tui.ProviderTraceMsg{
 							ProviderName: primaryID,
 							Phase:        tui.PhaseSynthesis,
