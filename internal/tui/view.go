@@ -421,10 +421,17 @@ func (m Model) renderSingleProviderPanel(panel ProviderPanel) string {
 		case StatusIdle:
 			content = m.styles.Dimmed.Render("No response yet")
 		case StatusDone:
-			content = m.styles.Dimmed.Render("Model responded with tool calls only (no text output).\nTool execution is handled by the consensus orchestrator.")
+			if len(panel.TraceSections) == 0 {
+				content = m.styles.Dimmed.Render("Model responded with tool calls only (no text output).\nTool execution is handled by the consensus orchestrator.")
+			}
 		case StatusFailed:
 			content = m.styles.StatusUnhealthy.Render("Provider failed")
 		}
+	}
+
+	// Append a spinner when the panel has content but is still loading
+	if panel.Status == StatusLoading && content != "" {
+		content += "\n" + m.spinner.View()
 	}
 
 	style := m.styles.ConsensusBorder.Width(m.width - 4)

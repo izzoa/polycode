@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-03-22
+
+### Added
+- **Provider activity traces**: Provider tabs now show the full participation trace for each provider — fan-out, synthesis, tool execution, and verification phases — instead of only the initial fan-out response. Phase boundaries are labeled with visible headers (`── Synthesis ──`, `── Tool Execution ──`, etc.).
+- **Accurate primary provider lifecycle**: The primary provider tab remains in-progress through synthesis, tool execution, and verification phases, and only marks complete when all work finishes. Previously it showed "done" after fan-out while most of its work happened off-screen.
+- **Provider trace persistence**: Session save/load and export now persist structured provider traces (phase + content per provider). Legacy sessions without traces load normally using the existing `Individual` summaries.
+- **Trace-aware export**: Markdown export (`/export`) prefers provider traces with phase labels when available, falling back to legacy individual summaries for older sessions.
+
+### Fixed
+- **Primary tab stuck loading on pipeline failure**: When the pipeline fails before synthesis starts, the primary provider tab is now explicitly marked failed instead of remaining in a loading state indefinitely.
+- **Tool-loop failure masked as success**: A tool-loop error no longer gets overwritten by an unconditional completion message — the primary tab correctly shows the failed state.
+- **Delta+Done chunk content dropped**: Synthesis stream chunks carrying both content and a done signal now process the content before handling completion, fixing blank responses in single-provider mode.
+
 ## [1.11.1] - 2026-03-21
 
 ### Fixed

@@ -82,7 +82,20 @@ func FormatSessionMarkdown(s *config.Session) string {
 		b.WriteString(fmt.Sprintf("**User:** %s\n\n", ex.Prompt))
 		b.WriteString(fmt.Sprintf("**Consensus:** %s\n\n", ex.ConsensusResponse))
 
-		if len(ex.Individual) > 0 {
+		if len(ex.ProviderTraces) > 0 {
+			b.WriteString("**Provider Activity:**\n\n")
+			for name, sections := range ex.ProviderTraces {
+				b.WriteString(fmt.Sprintf("*%s:*\n", name))
+				for _, sec := range sections {
+					summary := sec.Content
+					if len(summary) > 200 {
+						summary = summary[:197] + "..."
+					}
+					b.WriteString(fmt.Sprintf("  - [%s] %s\n", sec.Phase, summary))
+				}
+			}
+			b.WriteString("\n")
+		} else if len(ex.Individual) > 0 {
 			b.WriteString("**Individual Responses:**\n\n")
 			for name, resp := range ex.Individual {
 				// Truncate long individual responses for readability.

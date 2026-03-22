@@ -14,6 +14,25 @@ import (
 
 // Messages for TUI updates from the query pipeline.
 
+// TracePhase identifies which phase of provider activity a trace event belongs to.
+type TracePhase string
+
+const (
+	PhaseFanout    TracePhase = "fanout"
+	PhaseSynthesis TracePhase = "synthesis"
+	PhaseTool      TracePhase = "tool"
+	PhaseVerify    TracePhase = "verify"
+)
+
+// ProviderTraceMsg delivers a phase-aware trace event for a provider tab.
+type ProviderTraceMsg struct {
+	ProviderName string
+	Phase        TracePhase
+	Delta        string
+	Done         bool
+	Error        error
+}
+
 // ProviderChunkMsg delivers a streaming chunk from a provider.
 type ProviderChunkMsg struct {
 	ProviderName string
@@ -357,9 +376,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Prompt:             m.currentPrompt,
 			ConsensusResponse:  rawResponse,
 			IndividualResponse: make(map[string]string),
+			ProviderTraces:     make(map[string][]TraceSection),
 		}
 		for _, p := range m.panels {
 			exchange.IndividualResponse[p.Name] = p.Content.String()
+			if len(p.TraceSections) > 0 {
+				sections := make([]TraceSection, len(p.TraceSections))
+				copy(sections, p.TraceSections)
+				exchange.ProviderTraces[p.Name] = sections
+			}
 		}
 		m.history = append(m.history, exchange)
 		m.currentPrompt = ""
@@ -367,6 +392,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update the chat view with full conversation
 		m.chatView.SetContent(m.buildChatLog())
 		m.chatView.GotoBottom()
+		return m, nil
+
+	case ProviderTraceMsg:
+		for i := range m.panels {
+			if m.panels[i].Name == msg.ProviderName {
+				if msg.Error != nil {
+					m.panels[i].Status = StatusFailed
+					m.panels[i].appendTraceContent(msg.Phase, "\n[ERROR: "+msg.Error.Error()+"]")
+					m.lastError = fmt.Sprintf("%s: %s", msg.ProviderName, msg.Error.Error())
+				} else if msg.Done {
+					m.panels[i].Status = StatusDone
+				} else {
+					m.panels[i].Status = StatusLoading
+					m.panels[i].appendTraceContent(msg.Phase, msg.Delta)
+				}
+				m.panels[i].Viewport.SetContent(m.panels[i].Content.String())
+				m.panels[i].Viewport.GotoBottom()
+				break
+			}
+		}
 		return m, nil
 
 	case ProviderChunkMsg:
@@ -924,6 +969,8 @@ func (m *Model) resetPanels() {
 	for i := range m.panels {
 		m.panels[i].Status = StatusIdle
 		m.panels[i].Content.Reset()
+		m.panels[i].TraceSections = nil
+		m.panels[i].currentPhase = ""
 		m.panels[i].Viewport.SetContent("")
 	}
 	m.consensusContent.Reset()

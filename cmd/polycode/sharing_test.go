@@ -112,6 +112,84 @@ func TestFormatSessionMarkdownLongIndividualResponse(t *testing.T) {
 	}
 }
 
+func TestFormatSessionMarkdownWithProviderTraces(t *testing.T) {
+	session := &config.Session{
+		Exchanges: []config.SessionExchange{
+			{
+				Prompt:            "Fix the bug",
+				ConsensusResponse: "I fixed the bug.",
+				ProviderTraces: map[string][]config.ProviderTraceSection{
+					"claude": {
+						{Phase: "fanout", Content: "Looking at the code..."},
+						{Phase: "synthesis", Content: "I fixed the bug."},
+						{Phase: "tool", Content: "Running go test..."},
+						{Phase: "verify", Content: "Verification passed."},
+					},
+					"gpt4": {
+						{Phase: "fanout", Content: "The bug is in main.go."},
+					},
+				},
+			},
+		},
+	}
+
+	md := FormatSessionMarkdown(session)
+
+	// Should use Provider Activity instead of Individual Responses
+	if !strings.Contains(md, "**Provider Activity:**") {
+		t.Error("markdown should contain Provider Activity section")
+	}
+	if strings.Contains(md, "**Individual Responses:**") {
+		t.Error("markdown should NOT contain Individual Responses when traces exist")
+	}
+
+	// Check phase labels are included
+	if !strings.Contains(md, "[fanout]") {
+		t.Error("markdown should contain [fanout] phase label")
+	}
+	if !strings.Contains(md, "[synthesis]") {
+		t.Error("markdown should contain [synthesis] phase label")
+	}
+	if !strings.Contains(md, "[tool]") {
+		t.Error("markdown should contain [tool] phase label")
+	}
+	if !strings.Contains(md, "[verify]") {
+		t.Error("markdown should contain [verify] phase label")
+	}
+
+	// Check provider names
+	if !strings.Contains(md, "*claude:*") {
+		t.Error("markdown should contain claude provider name")
+	}
+	if !strings.Contains(md, "*gpt4:*") {
+		t.Error("markdown should contain gpt4 provider name")
+	}
+}
+
+func TestFormatSessionMarkdownFallsBackToIndividual(t *testing.T) {
+	// When no ProviderTraces, should use Individual
+	session := &config.Session{
+		Exchanges: []config.SessionExchange{
+			{
+				Prompt:            "Hello",
+				ConsensusResponse: "Hi there!",
+				Individual: map[string]string{
+					"claude": "Hello from Claude",
+				},
+			},
+		},
+	}
+
+	md := FormatSessionMarkdown(session)
+
+	if !strings.Contains(md, "**Individual Responses:**") {
+		t.Error("markdown should contain Individual Responses when no traces")
+	}
+	if strings.Contains(md, "**Provider Activity:**") {
+		t.Error("markdown should NOT contain Provider Activity when no traces")
+	}
+}
+
 func TestReviewHasCritical(t *testing.T) {
 	tests := []struct {
 		name     string

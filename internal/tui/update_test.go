@@ -601,3 +601,206 @@ func TestFullQueryLifecycle(t *testing.T) {
 			m.history[0].ConsensusResponse, "Go interfaces define behavioral contracts.")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// ProviderTraceMsg — phase-aware provider traces
+// ---------------------------------------------------------------------------
+
+func TestProviderTraceMsg_AccumulatesPhaseSections(t *testing.T) {
+	m := newTestModel()
+
+	// Send fanout trace chunks
+	m, _ = updateModel(t, m, ProviderTraceMsg{
+		ProviderName: "provider1",
+		Phase:        PhaseFanout,
+		Delta:        "fanout output",
+	})
+
+	if len(m.panels[0].TraceSections) != 1 {
+		t.Fatalf("trace sections = %d, want 1", len(m.panels[0].TraceSections))
+	}
+	if m.panels[0].TraceSections[0].Phase != "fanout" {
+		t.Errorf("phase = %q, want %q", m.panels[0].TraceSections[0].Phase, "fanout")
+	}
+	if m.panels[0].TraceSections[0].Content != "fanout output" {
+		t.Errorf("content = %q, want %q", m.panels[0].TraceSections[0].Content, "fanout output")
+	}
+
+	// Send synthesis trace chunk — should create a new section
+	m, _ = updateModel(t, m, ProviderTraceMsg{
+		ProviderName: "provider1",
+		Phase:        PhaseSynthesis,
+		Delta:        "synthesis output",
+	})
+
+	if len(m.panels[0].TraceSections) != 2 {
+		t.Fatalf("trace sections = %d, want 2", len(m.panels[0].TraceSections))
+	}
+	if m.panels[0].TraceSections[1].Phase != "synthesis" {
+		t.Errorf("phase = %q, want %q", m.panels[0].TraceSections[1].Phase, "synthesis")
+	}
+	if m.panels[0].TraceSections[1].Content != "synthesis output" {
+		t.Errorf("content = %q, want %q", m.panels[0].TraceSections[1].Content, "synthesis output")
+	}
+}
+
+func TestProviderTraceMsg_SamePhaseAppends(t *testing.T) {
+	m := newTestModel()
+
+	m, _ = updateModel(t, m, ProviderTraceMsg{
+		ProviderName: "provider1",
+		Phase:        PhaseFanout,
+		Delta:        "chunk1 ",
+	})
+	m, _ = updateModel(t, m, ProviderTraceMsg{
+		ProviderName: "provider1",
+		Phase:        PhaseFanout,
+		Delta:        "chunk2",
+	})
+
+	if len(m.panels[0].TraceSections) != 1 {
+		t.Fatalf("trace sections = %d, want 1 (same phase should append)", len(m.panels[0].TraceSections))
+	}
+	if m.panels[0].TraceSections[0].Content != "chunk1 chunk2" {
+		t.Errorf("content = %q, want %q", m.panels[0].TraceSections[0].Content, "chunk1 chunk2")
+	}
+}
+
+func TestProviderTraceMsg_PhaseHeadersInContent(t *testing.T) {
+	m := newTestModel()
+
+	m, _ = updateModel(t, m, ProviderTraceMsg{
+		ProviderName: "provider1",
+		Phase:        PhaseFanout,
+		Delta:        "text",
+	})
+	m, _ = updateModel(t, m, ProviderTraceMsg{
+		ProviderName: "provider1",
+		Phase:        PhaseSynthesis,
+		Delta:        "more",
+	})
+
+	content := m.panels[0].Content.String()
+	if !strings.Contains(content, "Fan-out") {
+		t.Error("content should contain Fan-out phase header")
+	}
+	if !strings.Contains(content, "Synthesis") {
+		t.Error("content should contain Synthesis phase header")
+	}
+}
+
+func TestProviderTraceMsg_DoneMarksProviderDone(t *testing.T) {
+	m := newTestModel()
+
+	m, _ = updateModel(t, m, ProviderTraceMsg{
+		ProviderName: "provider2",
+		Phase:        PhaseFanout,
+		Delta:        "output",
+	})
+	m, _ = updateModel(t, m, ProviderTraceMsg{
+		ProviderName: "provider2",
+		Phase:        PhaseFanout,
+		Done:         true,
+	})
+
+	if m.panels[1].Status != StatusDone {
+		t.Errorf("status = %v, want StatusDone", m.panels[1].Status)
+	}
+}
+
+func TestProviderTraceMsg_PrimaryStaysLoadingAfterFanout(t *testing.T) {
+	m := newTestModel()
+
+	// Simulate fan-out completing for primary provider1
+	m, _ = updateModel(t, m, ProviderTraceMsg{
+		ProviderName: "provider1",
+		Phase:        PhaseFanout,
+		Delta:        "output",
+	})
+
+	// Primary is still loading (not marked done after fan-out)
+	if m.panels[0].Status != StatusLoading {
+		t.Errorf("primary status = %v, want StatusLoading", m.panels[0].Status)
+	}
+
+	// Synthesis chunks arrive
+	m, _ = updateModel(t, m, ProviderTraceMsg{
+		ProviderName: "provider1",
+		Phase:        PhaseSynthesis,
+		Delta:        "synthesized",
+	})
+	if m.panels[0].Status != StatusLoading {
+		t.Errorf("primary status = %v, want StatusLoading during synthesis", m.panels[0].Status)
+	}
+
+	// Finally mark done after synthesis
+	m, _ = updateModel(t, m, ProviderTraceMsg{
+		ProviderName: "provider1",
+		Phase:        PhaseSynthesis,
+		Done:         true,
+	})
+	if m.panels[0].Status != StatusDone {
+		t.Errorf("primary status = %v, want StatusDone after synthesis", m.panels[0].Status)
+	}
+}
+
+func TestProviderTraceMsg_ErrorSetsFailedStatus(t *testing.T) {
+	m := newTestModel()
+
+	m, _ = updateModel(t, m, ProviderTraceMsg{
+		ProviderName: "provider1",
+		Phase:        PhaseSynthesis,
+		Error:        errors.New("synthesis failed"),
+	})
+
+	if m.panels[0].Status != StatusFailed {
+		t.Errorf("status = %v, want StatusFailed", m.panels[0].Status)
+	}
+	if m.lastError == "" {
+		t.Error("lastError should be set after trace error")
+	}
+}
+
+func TestProviderTraceMsg_TraceSectionsCapturedInHistory(t *testing.T) {
+	m := newTestModel()
+
+	m, _ = updateModel(t, m, QueryStartMsg{})
+	m.currentPrompt = "test"
+
+	// Send trace events
+	m, _ = updateModel(t, m, ProviderTraceMsg{
+		ProviderName: "provider1",
+		Phase:        PhaseFanout,
+		Delta:        "fanout data",
+	})
+	m, _ = updateModel(t, m, ProviderTraceMsg{
+		ProviderName: "provider1",
+		Phase:        PhaseSynthesis,
+		Delta:        "synthesis data",
+	})
+
+	m.consensusContent.WriteString("consensus")
+
+	m, _ = updateModel(t, m, QueryDoneMsg{})
+
+	if len(m.history) != 1 {
+		t.Fatalf("history len = %d, want 1", len(m.history))
+	}
+	traces := m.history[0].ProviderTraces
+	if traces == nil {
+		t.Fatal("ProviderTraces should not be nil")
+	}
+	sections, ok := traces["provider1"]
+	if !ok {
+		t.Fatal("traces should contain provider1")
+	}
+	if len(sections) != 2 {
+		t.Fatalf("provider1 sections = %d, want 2", len(sections))
+	}
+	if sections[0].Phase != "fanout" || sections[0].Content != "fanout data" {
+		t.Errorf("section 0 = %+v, want fanout/fanout data", sections[0])
+	}
+	if sections[1].Phase != "synthesis" || sections[1].Content != "synthesis data" {
+		t.Errorf("section 1 = %+v, want synthesis/synthesis data", sections[1])
+	}
+}

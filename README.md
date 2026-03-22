@@ -49,6 +49,7 @@ Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [Lip Glo
 - ASCII art splash screen on launch
 - Scrollable chat conversation with full multi-turn dialogue
 - Real-time streaming from each provider in labeled panels
+- **Provider activity traces** — each provider tab shows the full participation trace (fan-out, synthesis, tool execution, verification) with labeled phase boundaries
 - Consensus output panel with visual emphasis
 - **Command palette** — type `/` to see all commands with descriptions, filter by typing, Tab to accept
 - **Input history** — Up/Down arrows cycle through previously submitted prompts

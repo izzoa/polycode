@@ -45,12 +45,20 @@ type ConsensusTrace struct {
 	SynthesisModel  string            `json:"synthesis_model,omitempty"`
 }
 
+// ProviderTraceSection is a serializable trace section for one phase of
+// provider activity within a single turn.
+type ProviderTraceSection struct {
+	Phase   string `json:"phase"`
+	Content string `json:"content"`
+}
+
 // SessionExchange is a serializable prompt/response pair for display history.
 type SessionExchange struct {
-	Prompt            string            `json:"prompt"`
-	ConsensusResponse string            `json:"consensus_response"`
-	Individual        map[string]string `json:"individual,omitempty"`
-	Trace             *ConsensusTrace   `json:"trace,omitempty"`
+	Prompt            string                              `json:"prompt"`
+	ConsensusResponse string                              `json:"consensus_response"`
+	Individual        map[string]string                   `json:"individual,omitempty"`
+	ProviderTraces    map[string][]ProviderTraceSection    `json:"provider_traces,omitempty"`
+	Trace             *ConsensusTrace                     `json:"trace,omitempty"`
 }
 
 // Session holds the full conversation state for persistence.

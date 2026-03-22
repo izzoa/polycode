@@ -244,13 +244,24 @@ func startTUI(cfg *config.Config) error {
 		}
 		conv.mu.Unlock()
 
-		// Restore display history
+		// Restore display history, converting persisted traces to TUI format
 		for _, ex := range savedSession.Exchanges {
-			model.AppendHistory(tui.Exchange{
+			tuiEx := tui.Exchange{
 				Prompt:             ex.Prompt,
 				ConsensusResponse:  ex.ConsensusResponse,
 				IndividualResponse: ex.Individual,
-			})
+			}
+			if len(ex.ProviderTraces) > 0 {
+				tuiEx.ProviderTraces = make(map[string][]tui.TraceSection)
+				for provName, sections := range ex.ProviderTraces {
+					tuiSections := make([]tui.TraceSection, len(sections))
+					for i, s := range sections {
+						tuiSections[i] = tui.TraceSection{Phase: s.Phase, Content: s.Content}
+					}
+					tuiEx.ProviderTraces[provName] = tuiSections
+				}
+			}
+			model.AppendHistory(tuiEx)
 		}
 	}
 	model.SetConfig(cfg)
@@ -732,18 +743,25 @@ func startTUI(cfg *config.Config) error {
 			// Stream individual provider output to TUI tabs in real-time.
 			queryPipeline.SetChunkCallback(func(providerID string, chunk provider.StreamChunk) {
 				if chunk.Error != nil {
-					program.Send(tui.ProviderChunkMsg{
+					program.Send(tui.ProviderTraceMsg{
 						ProviderName: providerID,
+						Phase:        tui.PhaseFanout,
 						Error:        chunk.Error,
 					})
 				} else if chunk.Done {
-					program.Send(tui.ProviderChunkMsg{
-						ProviderName: providerID,
-						Done:         true,
-					})
+					// Non-primary providers are done after fan-out.
+					// The primary stays loading — synthesis etc. follow.
+					if providerID != primary.ID() {
+						program.Send(tui.ProviderTraceMsg{
+							ProviderName: providerID,
+							Phase:        tui.PhaseFanout,
+							Done:         true,
+						})
+					}
 				} else if chunk.Delta != "" {
-					program.Send(tui.ProviderChunkMsg{
+					program.Send(tui.ProviderTraceMsg{
 						ProviderName: providerID,
+						Phase:        tui.PhaseFanout,
 						Delta:        chunk.Delta,
 					})
 				}
@@ -756,12 +774,20 @@ func startTUI(cfg *config.Config) error {
 				// so the user can see what went wrong per provider.
 				if fanOutResult != nil {
 					for id, provErr := range fanOutResult.Errors {
-						program.Send(tui.ProviderChunkMsg{
+						program.Send(tui.ProviderTraceMsg{
 							ProviderName: id,
+							Phase:        tui.PhaseFanout,
 							Error:        provErr,
 						})
 					}
 				}
+				// Reconcile primary provider tab — mark it failed so it
+				// doesn't remain stuck in loading after a pipeline failure.
+				program.Send(tui.ProviderTraceMsg{
+					ProviderName: primary.ID(),
+					Phase:        tui.PhaseFanout,
+					Error:        err,
+				})
 				hookMgr.Run(hooks.OnError, hooks.HookContext{Prompt: prompt, Error: err.Error()})
 				program.Send(tui.ConsensusChunkMsg{Error: err, Done: true})
 				program.Send(tui.QueryDoneMsg{})
@@ -802,21 +828,67 @@ func startTUI(cfg *config.Config) error {
 				// Individual provider results already streamed via chunk callback.
 				// Only notify about skipped providers.
 				for _, id := range fanOutResult.Skipped {
-					program.Send(tui.ProviderChunkMsg{
+					program.Send(tui.ProviderTraceMsg{
 						ProviderName: id,
+						Phase:        tui.PhaseFanout,
 						Error:        fmt.Errorf("skipped: context limit exceeded"),
 					})
 				}
 			}
 
-			// Stream consensus output, accumulate response, detect tool calls
+			// Accumulate provider traces for persistence alongside the exchange.
+			providerTraces := make(map[string][]config.ProviderTraceSection)
+			appendTrace := func(providerID string, phase, delta string) {
+				sections := providerTraces[providerID]
+				if len(sections) == 0 || sections[len(sections)-1].Phase != phase {
+					sections = append(sections, config.ProviderTraceSection{Phase: phase})
+				}
+				sections[len(sections)-1].Content += delta
+				providerTraces[providerID] = sections
+			}
+
+			// Capture fan-out responses, errors, and skips into provider traces
+			if fanOutResult != nil {
+				for id, resp := range fanOutResult.Responses {
+					if resp != "" {
+						appendTrace(id, "fanout", resp)
+					}
+				}
+				for id, provErr := range fanOutResult.Errors {
+					appendTrace(id, "fanout", "[ERROR: "+provErr.Error()+"]")
+				}
+				for _, id := range fanOutResult.Skipped {
+					appendTrace(id, "fanout", "[skipped: context limit exceeded]")
+				}
+			}
+
+			// Stream consensus output, accumulate response, detect tool calls.
+			// Mirror synthesis chunks into the primary provider tab.
 			var fullResponse string
 			var consensusUsage tokens.Usage
 			var pendingToolCalls []provider.ToolCall
+			primaryID := primary.ID()
 			for chunk := range stream {
 				if chunk.Error != nil {
 					program.Send(tui.ConsensusChunkMsg{Error: chunk.Error})
+					program.Send(tui.ProviderTraceMsg{
+						ProviderName: primaryID,
+						Phase:        tui.PhaseSynthesis,
+						Error:        chunk.Error,
+					})
+					appendTrace(primaryID, "synthesis", "[ERROR: "+chunk.Error.Error()+"]")
 					break
+				}
+				// Process Delta before Done — a chunk can carry both (e.g. direct-response path).
+				if chunk.Delta != "" {
+					fullResponse += chunk.Delta
+					program.Send(tui.ConsensusChunkMsg{Delta: chunk.Delta})
+					program.Send(tui.ProviderTraceMsg{
+						ProviderName: primaryID,
+						Phase:        tui.PhaseSynthesis,
+						Delta:        chunk.Delta,
+					})
+					appendTrace(primaryID, "synthesis", chunk.Delta)
 				}
 				if chunk.Done {
 					consensusUsage = tokens.Usage{
@@ -826,11 +898,15 @@ func startTUI(cfg *config.Config) error {
 					pendingToolCalls = chunk.ToolCalls
 					if len(pendingToolCalls) == 0 {
 						program.Send(tui.ConsensusChunkMsg{Done: true})
+						// No tool calls follow — mark primary done
+						program.Send(tui.ProviderTraceMsg{
+							ProviderName: primaryID,
+							Phase:        tui.PhaseSynthesis,
+							Done:         true,
+						})
 					}
 					break
 				}
-				fullResponse += chunk.Delta
-				program.Send(tui.ConsensusChunkMsg{Delta: chunk.Delta})
 			}
 
 			// Track consensus synthesis usage on the primary
@@ -980,6 +1056,12 @@ func startTUI(cfg *config.Config) error {
 				for chunk := range toolOut {
 					if chunk.Error != nil {
 						program.Send(tui.ConsensusChunkMsg{Error: chunk.Error})
+						program.Send(tui.ProviderTraceMsg{
+							ProviderName: primaryID,
+							Phase:        tui.PhaseTool,
+							Error:        chunk.Error,
+						})
+						appendTrace(primaryID, "tool", "[ERROR: "+chunk.Error.Error()+"]")
 						break
 					}
 					if chunk.Done {
@@ -992,6 +1074,13 @@ func startTUI(cfg *config.Config) error {
 					}
 					// Display all chunks, but only persist model text (not status)
 					program.Send(tui.ConsensusChunkMsg{Delta: chunk.Delta})
+					// Mirror all tool output (status + model text) into primary tab
+					program.Send(tui.ProviderTraceMsg{
+						ProviderName: primaryID,
+						Phase:        tui.PhaseTool,
+						Delta:        chunk.Delta,
+					})
+					appendTrace(primaryID, "tool", chunk.Delta)
 					if !chunk.Status {
 						toolResponse += chunk.Delta
 					}
@@ -1011,28 +1100,48 @@ func startTUI(cfg *config.Config) error {
 						verifyCmd = action.DetectVerifyCommand(workDir)
 					}
 					if verifyCmd != "" {
-						program.Send(tui.ConsensusChunkMsg{
-							Delta: fmt.Sprintf("\nRunning verification: `%s`...\n", verifyCmd),
+						verifyStartMsg := fmt.Sprintf("\nRunning verification: `%s`...\n", verifyCmd)
+						program.Send(tui.ConsensusChunkMsg{Delta: verifyStartMsg})
+						program.Send(tui.ProviderTraceMsg{
+							ProviderName: primaryID,
+							Phase:        tui.PhaseVerify,
+							Delta:        verifyStartMsg,
 						})
+						appendTrace(primaryID, "verify", verifyStartMsg)
 						verifyOut, verifyOK, verifyErr := action.RunVerification(
 							context.Background(), verifyCmd, workDir, 2*time.Minute,
 						)
 						if verifyErr != nil {
-							program.Send(tui.ConsensusChunkMsg{
-								Delta: fmt.Sprintf("\nVerification error: %v\n", verifyErr),
+							verifyErrMsg := fmt.Sprintf("\nVerification error: %v\n", verifyErr)
+							program.Send(tui.ConsensusChunkMsg{Delta: verifyErrMsg})
+							program.Send(tui.ProviderTraceMsg{
+								ProviderName: primaryID,
+								Phase:        tui.PhaseVerify,
+								Delta:        verifyErrMsg,
 							})
+							appendTrace(primaryID, "verify", verifyErrMsg)
 						} else if !verifyOK {
 							display := verifyOut
 							if len(display) > 1000 {
 								display = display[:1000] + "\n... (truncated)"
 							}
-							program.Send(tui.ConsensusChunkMsg{
-								Delta: fmt.Sprintf("\nVerification failed:\n```\n%s\n```\n", display),
+							verifyFailMsg := fmt.Sprintf("\nVerification failed:\n```\n%s\n```\n", display)
+							program.Send(tui.ConsensusChunkMsg{Delta: verifyFailMsg})
+							program.Send(tui.ProviderTraceMsg{
+								ProviderName: primaryID,
+								Phase:        tui.PhaseVerify,
+								Delta:        verifyFailMsg,
 							})
+							appendTrace(primaryID, "verify", verifyFailMsg)
 						} else {
-							program.Send(tui.ConsensusChunkMsg{
-								Delta: "\nVerification passed.\n",
+							verifyPassMsg := "\nVerification passed.\n"
+							program.Send(tui.ConsensusChunkMsg{Delta: verifyPassMsg})
+							program.Send(tui.ProviderTraceMsg{
+								ProviderName: primaryID,
+								Phase:        tui.PhaseVerify,
+								Delta:        verifyPassMsg,
 							})
+							appendTrace(primaryID, "verify", verifyPassMsg)
 						}
 					}
 				}
@@ -1043,6 +1152,15 @@ func startTUI(cfg *config.Config) error {
 					Response: toolResponse,
 				})
 
+				// Mark primary provider done only if the tool loop succeeded.
+				// If it failed, the error trace already set StatusFailed.
+				if toolLoopOK {
+					program.Send(tui.ProviderTraceMsg{
+						ProviderName: primaryID,
+						Phase:        tui.PhaseTool,
+						Done:         true,
+					})
+				}
 				program.Send(tui.ConsensusChunkMsg{Done: true})
 			}
 
@@ -1116,6 +1234,7 @@ func startTUI(cfg *config.Config) error {
 					Prompt:            prompt,
 					ConsensusResponse: fullResponse,
 					Individual:        individual,
+					ProviderTraces:    providerTraces,
 					Trace:             trace,
 				})
 				if err := config.SaveSession(session); err != nil {

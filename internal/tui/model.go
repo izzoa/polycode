@@ -49,6 +49,12 @@ const (
 	StatusTimedOut
 )
 
+// TraceSection holds accumulated content for one phase of provider activity.
+type TraceSection struct {
+	Phase   string // "fanout", "synthesis", "tool", "verify"
+	Content string
+}
+
 // ProviderPanel holds the state for one provider's response panel.
 type ProviderPanel struct {
 	Name      string
@@ -56,6 +62,50 @@ type ProviderPanel struct {
 	Status    ProviderStatus
 	Content   *strings.Builder
 	Viewport  viewport.Model
+
+	// Phase-ordered trace sections for structured provider activity.
+	TraceSections []TraceSection
+	currentPhase  string // phase of the most recently appended section
+}
+
+// appendTraceContent appends delta text to the panel's trace, inserting a
+// phase header when the phase changes. It also writes to Content so the
+// viewport stays in sync.
+func (p *ProviderPanel) appendTraceContent(phase TracePhase, delta string) {
+	ph := string(phase)
+	if ph != p.currentPhase {
+		// Start a new section
+		p.TraceSections = append(p.TraceSections, TraceSection{Phase: ph})
+		p.currentPhase = ph
+		// Write a visible phase label into Content
+		label := phaseLabel(phase)
+		if p.Content.Len() > 0 {
+			p.Content.WriteString("\n")
+		}
+		p.Content.WriteString(label + "\n")
+	}
+	// Append to the current section
+	if len(p.TraceSections) > 0 {
+		idx := len(p.TraceSections) - 1
+		p.TraceSections[idx].Content += delta
+	}
+	p.Content.WriteString(delta)
+}
+
+// phaseLabel returns a human-readable header for a trace phase.
+func phaseLabel(phase TracePhase) string {
+	switch phase {
+	case PhaseFanout:
+		return "── Fan-out ──"
+	case PhaseSynthesis:
+		return "── Synthesis ──"
+	case PhaseTool:
+		return "── Tool Execution ──"
+	case PhaseVerify:
+		return "── Verification ──"
+	default:
+		return "── " + string(phase) + " ──"
+	}
 }
 
 // tokenDisplay holds pre-formatted token usage info for one provider.
@@ -92,8 +142,9 @@ type slashCommand struct {
 type Exchange struct {
 	Prompt             string
 	ConsensusResponse  string
-	IndividualResponse map[string]string // provider name → response
-	renderedResponse   string            // cached glamour-rendered markdown (computed once)
+	IndividualResponse map[string]string            // provider name → response
+	ProviderTraces     map[string][]TraceSection     // provider name → ordered trace sections
+	renderedResponse   string                        // cached glamour-rendered markdown (computed once)
 }
 
 // Model is the main Bubble Tea model for the polycode TUI.

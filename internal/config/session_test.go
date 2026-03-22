@@ -261,3 +261,130 @@ func TestClearSessionNoFile(t *testing.T) {
 		t.Fatalf("ClearSession with no file should not error: %v", err)
 	}
 }
+
+func TestProviderTraceRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	original := &Session{
+		Messages: []SessionMessage{
+			{Role: "user", Content: "explain Go"},
+		},
+		Exchanges: []SessionExchange{
+			{
+				Prompt:            "explain Go",
+				ConsensusResponse: "Go is great.",
+				Individual: map[string]string{
+					"claude": "Go is a language.",
+					"gpt4":   "Go is compiled.",
+				},
+				ProviderTraces: map[string][]ProviderTraceSection{
+					"claude": {
+						{Phase: "fanout", Content: "Go is a language."},
+						{Phase: "synthesis", Content: "Go is great."},
+						{Phase: "tool", Content: "Running go test..."},
+						{Phase: "verify", Content: "Verification passed."},
+					},
+					"gpt4": {
+						{Phase: "fanout", Content: "Go is compiled."},
+					},
+				},
+			},
+		},
+	}
+
+	if err := SaveSession(original); err != nil {
+		t.Fatalf("SaveSession failed: %v", err)
+	}
+
+	loaded, err := LoadSession()
+	if err != nil {
+		t.Fatalf("LoadSession failed: %v", err)
+	}
+	if loaded == nil {
+		t.Fatal("LoadSession returned nil")
+	}
+
+	if len(loaded.Exchanges) != 1 {
+		t.Fatalf("expected 1 exchange, got %d", len(loaded.Exchanges))
+	}
+
+	ex := loaded.Exchanges[0]
+
+	// Verify provider traces are preserved
+	if len(ex.ProviderTraces) != 2 {
+		t.Fatalf("expected 2 provider traces, got %d", len(ex.ProviderTraces))
+	}
+
+	claudeTraces := ex.ProviderTraces["claude"]
+	if len(claudeTraces) != 4 {
+		t.Fatalf("expected 4 claude trace sections, got %d", len(claudeTraces))
+	}
+	if claudeTraces[0].Phase != "fanout" || claudeTraces[0].Content != "Go is a language." {
+		t.Errorf("claude section 0 mismatch: %+v", claudeTraces[0])
+	}
+	if claudeTraces[1].Phase != "synthesis" || claudeTraces[1].Content != "Go is great." {
+		t.Errorf("claude section 1 mismatch: %+v", claudeTraces[1])
+	}
+	if claudeTraces[2].Phase != "tool" || claudeTraces[2].Content != "Running go test..." {
+		t.Errorf("claude section 2 mismatch: %+v", claudeTraces[2])
+	}
+	if claudeTraces[3].Phase != "verify" || claudeTraces[3].Content != "Verification passed." {
+		t.Errorf("claude section 3 mismatch: %+v", claudeTraces[3])
+	}
+
+	gptTraces := ex.ProviderTraces["gpt4"]
+	if len(gptTraces) != 1 {
+		t.Fatalf("expected 1 gpt4 trace section, got %d", len(gptTraces))
+	}
+	if gptTraces[0].Phase != "fanout" {
+		t.Errorf("gpt4 phase = %q, want %q", gptTraces[0].Phase, "fanout")
+	}
+
+	// Verify Individual is also preserved (backward compat)
+	if ex.Individual["claude"] != "Go is a language." {
+		t.Errorf("individual claude = %q", ex.Individual["claude"])
+	}
+}
+
+func TestLegacySessionWithoutTracesLoads(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	// Save a session with only Individual (no ProviderTraces) — simulates legacy format
+	legacy := &Session{
+		Messages: []SessionMessage{
+			{Role: "user", Content: "hello"},
+		},
+		Exchanges: []SessionExchange{
+			{
+				Prompt:            "hello",
+				ConsensusResponse: "Hi there!",
+				Individual: map[string]string{
+					"provider1": "Hello!",
+				},
+				// No ProviderTraces — legacy session
+			},
+		},
+	}
+
+	if err := SaveSession(legacy); err != nil {
+		t.Fatalf("SaveSession failed: %v", err)
+	}
+
+	loaded, err := LoadSession()
+	if err != nil {
+		t.Fatalf("LoadSession failed: %v", err)
+	}
+	if loaded == nil {
+		t.Fatal("LoadSession returned nil")
+	}
+
+	ex := loaded.Exchanges[0]
+	if ex.ProviderTraces != nil && len(ex.ProviderTraces) > 0 {
+		t.Error("legacy session should have nil/empty ProviderTraces")
+	}
+	if ex.Individual["provider1"] != "Hello!" {
+		t.Errorf("legacy Individual should be preserved: %q", ex.Individual["provider1"])
+	}
+}
