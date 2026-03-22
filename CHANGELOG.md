@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-03-22
+
+### Fixed
+- **Duplicate traces in primary-only mode**: When only the primary provider responds, the fan-out text is no longer duplicated under a spurious "synthesis" phase in the provider trace and export.
+- **Truncated fan-out persistence**: Persisted/exported fan-out traces now match the untruncated text the user saw live, instead of using post-truncation text from the pipeline.
+
 ## [1.12.0] - 2026-03-22
 
 ### Added
