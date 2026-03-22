@@ -6,6 +6,8 @@
   <strong>A multi-model consensus coding assistant for your terminal.</strong>
 </p>
 
+> **Alpha software.** Polycode is under active development and things will break. APIs, config formats, and behavior may change between releases. Bug reports and feedback are welcome — but don't rely on it for production workflows yet.
+
 ---
 
 Polycode queries multiple LLMs in parallel — Anthropic Claude, OpenAI, Google Gemini, local models, or any OpenAI-compatible endpoint — and synthesizes their responses into a single authoritative answer through a designated primary model. Think of it as Claude Code, Codex, or opencode, but backed by the collective intelligence of every AI model you have access to.
