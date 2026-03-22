@@ -729,6 +729,26 @@ func startTUI(cfg *config.Config) error {
 				synthesisMode,
 			)
 
+			// Stream individual provider output to TUI tabs in real-time.
+			queryPipeline.SetChunkCallback(func(providerID string, chunk provider.StreamChunk) {
+				if chunk.Error != nil {
+					program.Send(tui.ProviderChunkMsg{
+						ProviderName: providerID,
+						Error:        chunk.Error,
+					})
+				} else if chunk.Done {
+					program.Send(tui.ProviderChunkMsg{
+						ProviderName: providerID,
+						Done:         true,
+					})
+				} else if chunk.Delta != "" {
+					program.Send(tui.ProviderChunkMsg{
+						ProviderName: providerID,
+						Delta:        chunk.Delta,
+					})
+				}
+			})
+
 			// Run the fan-out + consensus pipeline with full history
 			stream, fanOutResult, err := queryPipeline.Run(ctx, messages, opts)
 			if err != nil {
@@ -779,22 +799,8 @@ func startTUI(cfg *config.Config) error {
 					}
 				}
 
-				// Send individual provider results to TUI
-				for id, content := range fanOutResult.Responses {
-					program.Send(tui.ProviderChunkMsg{
-						ProviderName: id,
-						Delta:        content,
-						Done:         true,
-					})
-				}
-				for id, err := range fanOutResult.Errors {
-					program.Send(tui.ProviderChunkMsg{
-						ProviderName: id,
-						Error:        err,
-					})
-				}
-
-				// Notify TUI about skipped providers
+				// Individual provider results already streamed via chunk callback.
+				// Only notify about skipped providers.
 				for _, id := range fanOutResult.Skipped {
 					program.Send(tui.ProviderChunkMsg{
 						ProviderName: id,

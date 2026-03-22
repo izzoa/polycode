@@ -25,9 +25,17 @@ type FanOutResult struct {
 	Skipped []string
 }
 
+// ChunkCallback is called for each streaming chunk from a provider during fan-out.
+// It receives the provider ID and the chunk. Called from provider goroutines —
+// implementations must be safe for concurrent use.
+type ChunkCallback func(providerID string, chunk provider.StreamChunk)
+
 // FanOut dispatches a query to all providers concurrently, collects their
 // streaming responses into complete strings, and returns once every provider
 // has finished or the timeout is reached.
+//
+// If onChunk is non-nil, it is called for every streaming chunk as it arrives
+// from each provider, enabling real-time display of individual provider output.
 //
 // If a tracker is provided, providers that would exceed their context limit
 // are skipped (recorded in result.Skipped).
@@ -38,6 +46,7 @@ func FanOut(
 	opts provider.QueryOpts,
 	timeout time.Duration,
 	tracker *tokens.TokenTracker,
+	onChunk ChunkCallback,
 ) *FanOutResult {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -84,17 +93,28 @@ func FanOut(
 			var usage tokens.Usage
 			for chunk := range ch {
 				if chunk.Error != nil {
+					if onChunk != nil {
+						onChunk(id, chunk)
+					}
 					mu.Lock()
 					result.Errors[id] = chunk.Error
 					result.Latencies[id] = time.Since(start)
 					mu.Unlock()
 					return
 				}
-				buf.WriteString(chunk.Delta)
+				if chunk.Delta != "" {
+					buf.WriteString(chunk.Delta)
+					if onChunk != nil {
+						onChunk(id, chunk)
+					}
+				}
 				if chunk.Done {
 					usage = tokens.Usage{
 						InputTokens:  chunk.InputTokens,
 						OutputTokens: chunk.OutputTokens,
+					}
+					if onChunk != nil {
+						onChunk(id, provider.StreamChunk{Done: true})
 					}
 				}
 			}

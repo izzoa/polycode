@@ -31,12 +31,12 @@ Query every configured LLM simultaneously. Responses fan out in parallel (latenc
 
 ### Supported Providers
 
-| Provider | Type | Streaming | Tool Use | Auth |
-|----------|------|-----------|----------|------|
-| **Anthropic Claude** | `anthropic` | SSE | Function calling | API key, OAuth |
-| **OpenAI (GPT, o-series)** | `openai` | SSE | Function calling | API key |
-| **Google Gemini** | `google` | SSE | Function calling | API key, OAuth |
-| **OpenAI-compatible** | `openai_compatible` | SSE | Function calling | API key, none |
+| Provider | Type | Streaming | Tool Use | Reasoning | Auth |
+|----------|------|-----------|----------|-----------|------|
+| **Anthropic Claude** | `anthropic` | SSE | Function calling | Extended thinking | API key, OAuth |
+| **OpenAI (GPT, o-series)** | `openai` | SSE | Function calling | reasoning_effort | API key |
+| **Google Gemini** | `google` | SSE | Function calling | thinkingBudget | API key, OAuth |
+| **OpenAI-compatible** | `openai_compatible` | SSE | Function calling | reasoning_effort | API key, none |
 
 OpenAI-compatible covers **OpenRouter**, **Ollama**, **vLLM**, **LM Studio**, **Together AI**, and any endpoint that speaks the OpenAI chat completions API.
 
@@ -48,7 +48,10 @@ Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [Lip Glo
 - Scrollable chat conversation with full multi-turn dialogue
 - Real-time streaming from each provider in labeled panels
 - Consensus output panel with visual emphasis
-- Status bar with provider health indicators and token usage
+- **Command palette** — type `/` to see all commands with descriptions, filter by typing, Tab to accept
+- **Input history** — Up/Down arrows cycle through previously submitted prompts
+- **Consensus provenance panel** — press `p` to see confidence, agreements, minority reports, and routing decisions
+- Status bar with provider health indicators, token usage, and per-provider cost
 - Toggle between consensus-only and all-panels view with `Tab`
 
 ### In-TUI Provider Configuration
@@ -66,7 +69,7 @@ No need to edit YAML — configure everything from within the TUI:
 
 Real-time visibility into how much context and budget you're consuming:
 
-- Per-provider token counts displayed in the status bar (`12.4K/200K`)
+- Per-provider token counts displayed in the tab bar (`12.4K/200K`)
 - **Estimated cost** per provider from litellm pricing data (e.g., `$0.12`)
 - Color-coded warnings at **80%** (amber) and **95%** (red) of context limits
 - Automatic provider exclusion when context limit is reached
@@ -75,29 +78,43 @@ Real-time visibility into how much context and budget you're consuming:
 
 ### Dynamic Model Metadata
 
-Polycode fetches model information from [litellm's model database](https://github.com/BerriAI/litellm) — a community-maintained registry of **1,000+ models** with context window sizes and capability flags. No manual updates needed when new models ship.
+Polycode fetches model information from [litellm's model database](https://github.com/BerriAI/litellm) — a community-maintained registry of **1,000+ models** with context window sizes, pricing, and capability flags. No manual updates needed when new models ship.
 
 - Cached locally with configurable TTL (default 24h)
 - Three-tier limit resolution: config override > litellm data > built-in fallback
 - Works offline using cached or hardcoded data
 - Capability awareness: function calling, vision, reasoning support
+- **Pricing data** used for per-provider cost estimation (`input_cost_per_token`, `output_cost_per_token`)
 - **Endpoint discovery** for OpenAI-compatible providers: queries `GET /models` on the configured base URL to list available models, cross-referenced with litellm for capability metadata
 
 ### Tool Execution
 
 The consensus output can drive coding actions, just like single-model assistants:
 
-- **File read** — read file contents into conversation context (no confirmation needed)
-- **File write** — propose changes with unified diff preview, user confirms before applying
-- **Shell exec** — run commands with confirmation, destructive command detection (`rm`, `sudo`, etc.)
-- **Tool-use loop** — the primary model can chain multiple tool calls (up to 10 iterations)
+- **File read** — read file contents into conversation context (no confirmation needed, path traversal blocked)
+- **File write** — propose changes with **unified diff preview** (`+`/`-` lines for existing files, content preview for new files), user confirms before applying
+- **Shell exec** — run commands with confirmation, **hardened destructive command detection** (`rm`, `sudo`, pipe-to-shell, `/dev/` paths, clobber operators, and more)
+- **Tool-use loop** — the primary model can chain tool calls until done (no iteration limit, bounded by the 5-minute context timeout)
+- **Auto-verification** — after file writes, auto-detected test suites (`go test`, `npm test`, `cargo test`, `pytest`, `make test`) run automatically and report pass/fail
 
 ### Authentication
 
 - **API keys** stored in your OS keyring (macOS Keychain, Linux secret-service)
 - **Encrypted file fallback** when keyring is unavailable
 - **OAuth 2.0 device flow** for providers that support it (Claude, Gemini)
+- **Automatic token refresh** — expired OAuth tokens are refreshed using stored refresh tokens before queries fail
 - **No-auth mode** for local models (Ollama, etc.)
+
+### Session Management
+
+Sessions persist across restarts and can be named, listed, and switched:
+
+- Auto-saved after each query with full conversation state
+- **Named sessions** — `/name my-feature` to tag the current session
+- **List sessions** — `/sessions` shows all saved sessions with exchange counts and timestamps
+- **Session export** — `/export [path]` writes the session as JSON
+- **Consensus traces** — each exchange records a full trace: routing mode, provider latencies, token usage, errors, and synthesis model
+- **CLI management** — `polycode session list|show|delete` for headless workflows
 
 ### Skills / Plugins
 
@@ -122,6 +139,11 @@ tools:
     handler: git diff --cached
 ```
 
+Three canonical example skills are included in `examples/skills/`:
+- **git-review** — `/review` for automated diff review with structured output
+- **test-runner** — `/test` for detecting and running project test suites
+- **security-audit** — `/audit` for scanning secrets, vulnerable deps, and injection patterns
+
 ### Operating Modes
 
 All modes query every configured provider. The mode controls **synthesis depth** and **reasoning effort**:
@@ -132,7 +154,15 @@ All modes query every configured provider. The mode controls **synthesis depth**
 | **`balanced`** | Structured synthesis — confidence, agreements, minority reports, evidence | Medium |
 | **`thorough`** | Deep analysis — step-by-step reasoning, trade-offs, verification, alternatives | High |
 
-Switch modes with `/mode quick`, `/mode balanced`, or `/mode thorough`, or open the mode picker from the tab bar. Reasoning effort maps to each provider's native parameter (Anthropic `thinking`, OpenAI `reasoning_effort`, Gemini `thinkingBudget`).
+Switch modes with `/mode quick`, `/mode balanced`, or `/mode thorough`, or open the mode picker from the tab bar. Reasoning effort maps to each provider's native parameter:
+
+| Provider | Low | Medium | High |
+|----------|-----|--------|------|
+| Anthropic | `thinking.budget_tokens: 4096` | `10000` | `32000` |
+| OpenAI | `reasoning_effort: "low"` | `"medium"` | `"high"` |
+| Gemini | `thinkingBudget: 4096` | `10000` | `32000` |
+
+Models without reasoning support silently ignore the parameter.
 
 ### Hooks, Permissions, and MCP
 
@@ -206,7 +236,7 @@ The interactive wizard walks you through configuring providers with selectable l
 polycode
 ```
 
-You'll see the polycode splash screen, then the chat interface. Start typing and press Enter. Use `/help` to see all available commands.
+You'll see the polycode splash screen, then the chat interface. Start typing and press Enter. Type `/` to open the command palette with all available commands.
 
 ### 3. Add more providers
 
@@ -217,6 +247,8 @@ polycode provider add
 Or press `Ctrl+S` in the TUI to open settings, then `a`. The more providers you configure, the better the consensus.
 
 ### Slash commands
+
+Type `/` to open the command palette, or type commands directly:
 
 | Command | Action |
 |---------|--------|
@@ -230,8 +262,8 @@ Or press `Ctrl+S` in the TUI to open settings, then `a`. The more providers you 
 | `/name <name>` | Name the current session |
 | `/memory` | View repo memory |
 | `/skill [list\|install\|remove]` | Manage installed skills/plugins |
+| `/settings` | Open provider settings |
 | `/yolo` | Toggle auto-approve for all tool actions |
-| `p` | Toggle consensus provenance panel (confidence, agreements, routing) |
 | `/exit` | Quit polycode |
 
 ---
@@ -275,6 +307,7 @@ providers:
 consensus:
   timeout: 60s              # max wait per provider before proceeding
   min_responses: 2           # minimum responses needed before synthesizing
+  verify_command: ""         # optional: override auto-detected test command
 
 metadata:
   cache_ttl: 24h             # how often to refresh litellm model data
@@ -303,6 +336,7 @@ tui:
 |-------|---------|-------------|
 | `timeout` | `60s` | Maximum time to wait for each provider's response |
 | `min_responses` | `2` | Minimum successful responses before synthesis proceeds. Set to `1` if you only have one provider. |
+| `verify_command` | auto-detected | Test command to run after file writes. Auto-detects `go test`, `npm test`, `cargo test`, `pytest`, `make test`. |
 
 ---
 
@@ -331,6 +365,8 @@ When adding a provider via the settings wizard (`Ctrl+S` → `a`), you'll be pro
 2. **Encrypted file** (fallback) — `~/.config/polycode/credentials.json` when keyring is unavailable
 3. **No credentials** — for `auth: none` providers (local models)
 
+OAuth tokens are automatically refreshed when they expire — no manual re-authentication needed.
+
 ---
 
 ## Keyboard Shortcuts
@@ -341,7 +377,9 @@ When adding a provider via the settings wizard (`Ctrl+S` → `a`), you'll be pro
 |-----|--------|
 | `Enter` | Submit prompt |
 | `Shift+Enter` | New line in input |
-| `Tab` | Toggle individual provider panels |
+| `Tab` | Accept command palette suggestion / toggle provider panels |
+| `↑` / `↓` | Cycle through input history (when input is empty) |
+| `p` | Toggle consensus provenance panel |
 | `Ctrl+S` | Open settings |
 | `?` | Show help overlay |
 | `Ctrl+C` | Quit |
@@ -382,22 +420,25 @@ User prompt
                                                  │
                                     ┌────────────┘
                                     ▼
-                           Collect all responses
+                        Truncate to fit context
                                     │
                                     ▼
                         Primary model synthesizes
-                         (sees all responses)
+                         (mode-aware prompt)
                                     │
                                     ▼
                           Consensus response
                                     │
                                     ▼
                          Tool execution (if any)
+                                    │
+                                    ▼
+                        Verification (if files written)
 ```
 
-### Synthesis prompt
+### Synthesis prompt (balanced mode)
 
-The primary model receives a structured prompt containing every provider's response:
+The primary model receives a structured prompt containing every provider's response. The prompt varies by mode — `quick` asks for a concise direct answer, `balanced` (shown below) asks for structured analysis, and `thorough` adds trade-off analysis, step-by-step reasoning, and cross-model verification:
 
 ```
 You are synthesizing responses from multiple AI models to produce
@@ -417,9 +458,21 @@ Consider Redis for distributed caching...
 A simple in-memory map with mutex...
 ---
 
-Analyze all responses. Identify areas of agreement, unique insights,
-and any errors. Produce a single, authoritative response that
-represents the best synthesis.
+Analyze all responses and produce a synthesis with this structure:
+
+## Recommendation
+[Your synthesized answer]
+
+## Confidence: [high/medium/low]
+
+## Agreement
+[Points where all or most models agree]
+
+## Minority Report
+[Dissenting views worth considering]
+
+## Evidence
+[Key facts, code references, or documentation cited]
 ```
 
 ### Edge cases
@@ -428,6 +481,7 @@ represents the best synthesis.
 - **Provider failure** — failed/timed-out providers are excluded; consensus proceeds with available responses
 - **Below minimum threshold** — if fewer than `min_responses` providers respond, an error is shown
 - **Context overflow** — if combined responses exceed the primary's context window, they're proportionally truncated with `[truncated]` markers
+- **Auto-summarization** — if conversation context reaches 80% of the primary model's limit, early turns are compressed into a summary
 
 ---
 
@@ -436,32 +490,37 @@ represents the best synthesis.
 ```
 polycode/
 ├── cmd/polycode/           # CLI entry point, app wiring
-│   ├── main.go             # Cobra commands (root, auth, skill, init, review, ci, serve)
+│   ├── main.go             # Cobra commands (root, auth, skill, session, init, review, ci, serve)
 │   ├── app.go              # TUI startup, subsystem wiring, conversation loop
 │   ├── setup.go            # Interactive setup wizard
 │   ├── review.go           # polycode review subcommand
 │   ├── ci.go               # polycode ci (headless PR review)
 │   ├── serve.go            # Editor bridge HTTP server
 │   └── sharing.go          # Export/import sessions
+├── examples/               # Example skills and config templates
+│   ├── skills/             # Canonical skills (git-review, test-runner, security-audit)
+│   ├── permissions.yaml    # Example permission policies
+│   ├── instructions.md     # Example project instructions
+│   └── skill-manifest.yaml # Annotated skill manifest template
 ├── evals/                  # Evaluation framework
 │   ├── golden_tasks_test.go    # End-to-end execution pipeline tests
 │   └── review_benchmark_test.go # Seeded review quality benchmarks
 ├── internal/
-│   ├── config/             # YAML config types, loading, validation, saving
-│   ├── provider/           # Provider interface + 4 adapters + registry
-│   ├── consensus/          # Fan-out + synthesis pipeline
-│   ├── tokens/             # Token tracking + model metadata (litellm)
-│   ├── action/             # Tool execution (file_read, file_write, shell_exec)
-│   ├── auth/               # Credential management (keyring, file, OAuth)
-│   ├── tui/                # Bubble Tea terminal UI
+│   ├── config/             # YAML config types, loading, validation, session persistence
+│   ├── provider/           # Provider interface + 4 adapters (Anthropic, OpenAI, Gemini, OpenAI-compat)
+│   ├── consensus/          # Fan-out, truncation, mode-aware synthesis pipeline
+│   ├── tokens/             # Token tracking, cost estimation, model metadata (litellm)
+│   ├── action/             # Tool execution (file_read, file_write, shell_exec, verification)
+│   ├── auth/               # Credential management (keyring, file, OAuth + auto-refresh)
+│   ├── tui/                # Bubble Tea terminal UI (command palette, provenance, input history)
 │   ├── hooks/              # Lifecycle hooks (pre_query, post_query, etc.)
 │   ├── permissions/        # Per-tool approval policies (allow/ask/deny)
-│   ├── routing/            # Adaptive provider selection by mode + telemetry
+│   ├── routing/            # Mode-based routing with telemetry scoring
 │   ├── memory/             # Repo memory + instruction hierarchy
 │   ├── mcp/                # Model Context Protocol client
 │   ├── skill/              # Skills/plugin system (manifest, registry, execution)
-│   ├── agent/              # Agent teams (task graph, role-based workers)
-│   └── telemetry/          # Event logging for routing calibration
+│   ├── agent/              # Agent teams (task graph, role-based workers, checkpoints)
+│   └── telemetry/          # Event logging (latency, errors) for routing calibration
 ├── .goreleaser.yaml        # Cross-platform build config
 └── openspec/               # Change management artifacts
 ```
@@ -551,7 +610,7 @@ consensus:
 ## FAQ
 
 **Does polycode cost more than using a single model?**
-Yes — every query hits N providers plus a consensus synthesis call. Cost scales linearly with the number of providers. Use `max_context` overrides and monitor token usage in the status bar.
+Yes — every query hits N providers plus a consensus synthesis call. Cost scales linearly with the number of providers. Per-provider costs are shown in the tab bar (from litellm pricing data). Use `max_context` overrides to limit token consumption.
 
 **Can I use it with just one provider?**
 Yes. Set `min_responses: 1` and polycode works like a standard single-model coding assistant — no consensus step.
@@ -567,6 +626,9 @@ Yes. Any model served via an OpenAI-compatible API (Ollama, vLLM, LM Studio, lla
 
 **Where are my API keys stored?**
 In your OS keyring (macOS Keychain, Linux secret-service). If the keyring isn't available, they fall back to `~/.config/polycode/credentials.json`. Keys are never stored in the config file.
+
+**Do all modes query all providers?**
+Yes. Quick, balanced, and thorough modes all fan out to every configured provider. The mode controls how deeply the primary model analyzes and synthesizes the responses, and how much reasoning effort each provider applies.
 
 ---
 

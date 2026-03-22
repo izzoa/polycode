@@ -49,7 +49,7 @@ func TestFanOutAllSucceed(t *testing.T) {
 		&mockProvider{id: "b", response: "hello from b"},
 	}
 
-	result := FanOut(context.Background(), providers, nil, provider.QueryOpts{}, 5*time.Second, nil)
+	result := FanOut(context.Background(), providers, nil, provider.QueryOpts{}, 5*time.Second, nil, nil)
 
 	if len(result.Responses) != 2 {
 		t.Fatalf("expected 2 responses, got %d", len(result.Responses))
@@ -71,7 +71,7 @@ func TestFanOutOneError(t *testing.T) {
 		&mockProvider{id: "b", err: fmt.Errorf("rate limited")},
 	}
 
-	result := FanOut(context.Background(), providers, nil, provider.QueryOpts{}, 5*time.Second, nil)
+	result := FanOut(context.Background(), providers, nil, provider.QueryOpts{}, 5*time.Second, nil, nil)
 
 	if len(result.Responses) != 1 {
 		t.Fatalf("expected 1 response, got %d", len(result.Responses))
@@ -90,7 +90,7 @@ func TestFanOutTimeout(t *testing.T) {
 		&mockProvider{id: "slow", response: "slow", delay: 5 * time.Second},
 	}
 
-	result := FanOut(context.Background(), providers, nil, provider.QueryOpts{}, 200*time.Millisecond, nil)
+	result := FanOut(context.Background(), providers, nil, provider.QueryOpts{}, 200*time.Millisecond, nil, nil)
 
 	if result.Responses["fast"] != "quick" {
 		t.Errorf("fast provider should succeed, got: %q", result.Responses["fast"])

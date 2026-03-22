@@ -13,11 +13,12 @@ import (
 // Pipeline orchestrates the full consensus workflow: fan-out query to all
 // providers, threshold check, and synthesis via the primary provider.
 type Pipeline struct {
-	engine       *Engine
-	providers    []provider.Provider
-	timeout      time.Duration
-	tracker      *tokens.TokenTracker
-	truncateBudget int // max total chars for fan-out responses; 0 = no truncation
+	engine         *Engine
+	providers      []provider.Provider
+	timeout        time.Duration
+	tracker        *tokens.TokenTracker
+	truncateBudget int           // max total chars for fan-out responses; 0 = no truncation
+	onChunk        ChunkCallback // optional: called for each streaming chunk during fan-out
 }
 
 // NewPipeline creates a Pipeline.
@@ -59,6 +60,13 @@ func NewPipeline(
 	}
 }
 
+// SetChunkCallback sets a callback that fires for each streaming chunk from
+// individual providers during fan-out. This enables real-time display of
+// individual provider output while the fan-out is in progress.
+func (p *Pipeline) SetChunkCallback(cb ChunkCallback) {
+	p.onChunk = cb
+}
+
 // Run executes the full consensus pipeline:
 //  1. Fan-out the query to every provider.
 //  2. Check the minimum-response threshold.
@@ -83,7 +91,7 @@ func (p *Pipeline) Run(
 	}
 
 	// Phase 1: fan-out.
-	fanOutResult := FanOut(ctx, p.providers, messages, opts, p.timeout, p.tracker)
+	fanOutResult := FanOut(ctx, p.providers, messages, opts, p.timeout, p.tracker, p.onChunk)
 
 	// Truncate fan-out responses to fit within the primary model's context.
 	if p.truncateBudget > 0 && len(fanOutResult.Responses) > 0 {
