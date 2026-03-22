@@ -33,7 +33,7 @@ Query every configured LLM simultaneously. Responses fan out in parallel (latenc
 
 | Provider | Type | Streaming | Tool Use | Reasoning | Auth |
 |----------|------|-----------|----------|-----------|------|
-| **Anthropic Claude** | `anthropic` | SSE | Function calling | Extended thinking | API key, OAuth |
+| **Anthropic Claude** | `anthropic` | SSE | Function calling | Extended thinking | API key |
 | **OpenAI (GPT, o-series)** | `openai` | SSE | Function calling | reasoning_effort | API key |
 | **Google Gemini** | `google` | SSE | Function calling | thinkingBudget | API key, OAuth |
 | **OpenAI-compatible** | `openai_compatible` | SSE | Function calling | reasoning_effort | API key, none |
@@ -101,7 +101,7 @@ The consensus output can drive coding actions, just like single-model assistants
 
 - **API keys** stored in your OS keyring (macOS Keychain, Linux secret-service)
 - **Encrypted file fallback** when keyring is unavailable
-- **OAuth 2.0 device flow** for providers that support it (Claude, Gemini)
+- **OAuth 2.0 device flow** for providers that support it (Gemini)
 - **Automatic token refresh** — expired OAuth tokens are refreshed using stored refresh tokens before queries fail
 - **No-auth mode** for local models (Ollama, etc.)
 
