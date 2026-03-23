@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-03-23
+
+### Added
+- **Fan-out tool execution visibility**: Provider tabs now show "Executing file_read..." status messages and truncated tool output during fan-out, mirroring the primary provider's tool loop behavior. Previously tool execution happened silently.
+
+### Fixed
+- **Tool capability detection**: `openai_compatible` providers now included in tool fallback. Two-tier approach: trust litellm metadata when the model is known, fall back to type-based default when unknown. Previously openai-compatible providers were silently excluded from tools.
+- **Fan-out errors surfaced in TUI**: When a provider's re-query fails during fan-out tool loop, the error is now sent to the TUI callback so the tab shows the failure instead of hanging in a loading state.
+- **Anthropic role alternation**: Consecutive tool result messages are coalesced into a single `user` message with multiple `tool_result` content blocks, satisfying Anthropic's strict role alternation requirement. Previously consecutive tool results caused 400 errors.
+- **Gemini tool call ID collisions**: Tool call IDs now include a counter (`gemini_call_file_read_1`, `_2`, etc.) to prevent collisions when multiple calls to the same function occur.
+
 ## [1.13.3] - 2026-03-23
 
 ### Fixed

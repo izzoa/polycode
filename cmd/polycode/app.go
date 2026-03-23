@@ -748,11 +748,21 @@ func startTUI(cfg *config.Config) error {
 			toolCapable := make(map[string]bool)
 			for _, pc := range cfg.Providers {
 				if metadataStore != nil {
-					toolCapable[pc.Name] = metadataStore.SupportsToolCalling(pc.Model, string(pc.Type))
+					_, found := metadataStore.Lookup(pc.Model, string(pc.Type))
+					if found {
+						// Model is in litellm — trust its capability flag.
+						toolCapable[pc.Name] = metadataStore.SupportsToolCalling(pc.Model, string(pc.Type))
+					} else {
+						// Model not in litellm — fall back to type-based default.
+						switch pc.Type {
+						case "anthropic", "openai", "google", "openai_compatible":
+							toolCapable[pc.Name] = true
+						}
+					}
 				} else {
-					// No metadata — known first-party types support tools
+					// No metadata store — fall back to type-based default.
 					switch pc.Type {
-					case "anthropic", "openai", "google":
+					case "anthropic", "openai", "google", "openai_compatible":
 						toolCapable[pc.Name] = true
 					}
 				}

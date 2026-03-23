@@ -191,7 +191,10 @@ func queryWithToolLoop(
 	for round := 0; round <= maxFanOutToolRounds; round++ {
 		ch, err := p.Query(ctx, msgs, opts)
 		if err != nil {
-			// Return partial content + the error — don't mask as success.
+			// Surface the error to the TUI so the tab shows failure.
+			if onChunk != nil {
+				onChunk(id, provider.StreamChunk{Error: err})
+			}
 			return totalBuf.String(), totalUsage, err
 		}
 
@@ -251,6 +254,15 @@ func queryWithToolLoop(
 			if ctx.Err() != nil {
 				break // respect fan-out timeout
 			}
+
+			// Emit status chunk so the TUI shows tool execution progress.
+			if onChunk != nil {
+				onChunk(id, provider.StreamChunk{
+					Delta:  fmt.Sprintf("\nExecuting %s...\n", call.Name),
+					Status: true,
+				})
+			}
+
 			output, execErr := toolExec(call)
 			content := output
 			if execErr != nil {
@@ -259,6 +271,19 @@ func queryWithToolLoop(
 				}
 				content += "Error: " + execErr.Error()
 			}
+
+			// Show truncated tool output in the provider tab.
+			if onChunk != nil && content != "" {
+				display := content
+				if len(display) > 500 {
+					display = display[:500] + "\n... (truncated)"
+				}
+				onChunk(id, provider.StreamChunk{
+					Delta:  fmt.Sprintf("```\n%s\n```\n", display),
+					Status: true,
+				})
+			}
+
 			msgs = append(msgs, provider.Message{
 				Role:       provider.RoleTool,
 				Content:    content,

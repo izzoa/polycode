@@ -179,14 +179,30 @@ func (p *AnthropicProvider) Query(ctx context.Context, messages []Message, opts 
 		}
 
 		// Handle tool result messages with proper content blocks.
+		// Coalesce consecutive tool results into a single "user" message
+		// so Anthropic's strict role alternation is satisfied.
 		if m.Role == RoleTool && m.ToolCallID != "" {
+			block := anthropicContentBlock{
+				Type:      "tool_result",
+				ToolUseID: m.ToolCallID,
+				Content:   m.Content,
+			}
+			// If the previous message is already a user with tool_result blocks,
+			// append to it instead of creating a new user message.
+			if len(convMsgs) > 0 {
+				prev := &convMsgs[len(convMsgs)-1]
+				if prev.Role == "user" {
+					if blocks, ok := prev.Content.([]anthropicContentBlock); ok {
+						if len(blocks) > 0 && blocks[0].Type == "tool_result" {
+							prev.Content = append(blocks, block)
+							continue
+						}
+					}
+				}
+			}
 			convMsgs = append(convMsgs, anthropicMsg{
-				Role: "user",
-				Content: []anthropicContentBlock{{
-					Type:      "tool_result",
-					ToolUseID: m.ToolCallID,
-					Content:   m.Content,
-				}},
+				Role:    "user",
+				Content: []anthropicContentBlock{block},
 			})
 			continue
 		}

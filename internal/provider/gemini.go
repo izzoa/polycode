@@ -300,6 +300,7 @@ func (p *GeminiProvider) readSSE(ctx context.Context, body io.ReadCloser, ch cha
 	defer body.Close()
 
 	var inputTokens, outputTokens int
+	var toolCallCounter int
 
 	scanner := bufio.NewScanner(body)
 	for scanner.Scan() {
@@ -346,9 +347,10 @@ func (p *GeminiProvider) readSSE(ctx context.Context, body io.ReadCloser, ch cha
 				ch <- StreamChunk{Delta: part.Text}
 			}
 			if part.FunctionCall != nil {
+				toolCallCounter++
 				args, _ := json.Marshal(part.FunctionCall.Args)
 				toolCalls = append(toolCalls, ToolCall{
-					ID:        fmt.Sprintf("gemini_call_%s", part.FunctionCall.Name),
+					ID:        fmt.Sprintf("gemini_call_%s_%d", part.FunctionCall.Name, toolCallCounter),
 					Name:      part.FunctionCall.Name,
 					Arguments: string(args),
 				})
