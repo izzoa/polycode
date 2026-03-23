@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-03-23
+
+### Added
+- **Read-only tools during fan-out**: Providers can now use `file_read` during fan-out to inspect the codebase before responding, instead of giving generic advice. Write and exec tools remain synthesis-only.
+
+### Fixed
+- **Tool results lost from conversation history**: Tool calls and results are now preserved as structured messages in the conversation state (assistant+tool_calls → tool results → follow-up). Previously they were flattened to a single text blob, so providers lost tool context on subsequent turns.
+
 ## [1.12.1] - 2026-03-22
 
 ### Fixed

@@ -72,3 +72,11 @@ func AllTools() []provider.ToolDefinition {
 		ShellExecTool(),
 	}
 }
+
+// ReadOnlyTools returns tool definitions that are safe for concurrent fan-out
+// execution — read-only operations with no side effects.
+func ReadOnlyTools() []provider.ToolDefinition {
+	return []provider.ToolDefinition{
+		FileReadTool(),
+	}
+}

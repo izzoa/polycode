@@ -29,7 +29,7 @@ Every AI model has blind spots. Claude might excel at architecture, GPT at debug
 
 ### Multi-Provider Consensus
 
-Query every configured LLM simultaneously. Responses fan out in parallel (latency = slowest provider, not sum of all), and your designated **primary** model synthesizes them into a single answer — identifying areas of agreement, unique insights, and errors.
+Query every configured LLM simultaneously. Responses fan out in parallel (latency = slowest provider, not sum of all), and your designated **primary** model synthesizes them into a single answer — identifying areas of agreement, unique insights, and errors. Providers can read files during fan-out to give codebase-aware answers.
 
 ### Supported Providers
 

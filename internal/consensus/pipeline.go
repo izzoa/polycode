@@ -19,6 +19,11 @@ type Pipeline struct {
 	tracker        *tokens.TokenTracker
 	truncateBudget int           // max total chars for fan-out responses; 0 = no truncation
 	onChunk        ChunkCallback // optional: called for each streaming chunk during fan-out
+
+	// Read-only tool support for fan-out. When both are set, providers can
+	// call read-only tools (e.g., file_read) during their fan-out response.
+	fanOutTools    []provider.ToolDefinition
+	fanOutToolExec FanOutToolExecutor
 }
 
 // NewPipeline creates a Pipeline.
@@ -67,6 +72,13 @@ func (p *Pipeline) SetChunkCallback(cb ChunkCallback) {
 	p.onChunk = cb
 }
 
+// SetFanOutTools configures read-only tools available to providers during
+// fan-out. The executor handles the actual tool execution (e.g., file_read).
+func (p *Pipeline) SetFanOutTools(tools []provider.ToolDefinition, exec FanOutToolExecutor) {
+	p.fanOutTools = tools
+	p.fanOutToolExec = exec
+}
+
 // Run executes the full consensus pipeline:
 //  1. Fan-out the query to every provider.
 //  2. Check the minimum-response threshold.
@@ -90,8 +102,8 @@ func (p *Pipeline) Run(
 		)
 	}
 
-	// Phase 1: fan-out.
-	fanOutResult := FanOut(ctx, p.providers, messages, opts, p.timeout, p.tracker, p.onChunk)
+	// Phase 1: fan-out (with read-only tools if configured).
+	fanOutResult := FanOutWithTools(ctx, p.providers, messages, opts, p.timeout, p.tracker, p.onChunk, p.fanOutTools, p.fanOutToolExec)
 
 	// Truncate fan-out responses to fit within the primary model's context.
 	if p.truncateBudget > 0 && len(fanOutResult.Responses) > 0 {

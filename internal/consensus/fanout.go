@@ -30,6 +30,15 @@ type FanOutResult struct {
 // implementations must be safe for concurrent use.
 type ChunkCallback func(providerID string, chunk provider.StreamChunk)
 
+// FanOutToolExecutor executes a single tool call during fan-out.
+// Only read-only tools should be wired here. It is called from concurrent
+// provider goroutines, so the implementation must be safe for concurrent use.
+type FanOutToolExecutor func(call provider.ToolCall) (output string, err error)
+
+// maxFanOutToolRounds caps the number of tool-call → re-query cycles per
+// provider during fan-out to prevent runaway loops.
+const maxFanOutToolRounds = 3
+
 // FanOut dispatches a query to all providers concurrently, collects their
 // streaming responses into complete strings, and returns once every provider
 // has finished or the timeout is reached.
@@ -48,6 +57,23 @@ func FanOut(
 	tracker *tokens.TokenTracker,
 	onChunk ChunkCallback,
 ) *FanOutResult {
+	return FanOutWithTools(ctx, providers, messages, opts, timeout, tracker, onChunk, nil, nil)
+}
+
+// FanOutWithTools is like FanOut but allows read-only tools during fan-out.
+// readOnlyTools are the tool definitions sent to providers (e.g., file_read).
+// toolExec executes tool calls; if nil, tools are stripped from the request.
+func FanOutWithTools(
+	ctx context.Context,
+	providers []provider.Provider,
+	messages []provider.Message,
+	opts provider.QueryOpts,
+	timeout time.Duration,
+	tracker *tokens.TokenTracker,
+	onChunk ChunkCallback,
+	readOnlyTools []provider.ToolDefinition,
+	toolExec FanOutToolExecutor,
+) *FanOutResult {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -58,11 +84,13 @@ func FanOut(
 		Latencies: make(map[string]time.Duration, len(providers)),
 	}
 
-	// Strip tools from fan-out opts — individual providers should respond
-	// with text analysis, not tool calls. Only the consensus synthesizer
-	// (which runs after fan-out) should execute tools.
+	// Build fan-out opts: use read-only tools if provided, otherwise strip all.
 	fanOutOpts := opts
-	fanOutOpts.Tools = nil
+	if toolExec != nil && len(readOnlyTools) > 0 {
+		fanOutOpts.Tools = readOnlyTools
+	} else {
+		fanOutOpts.Tools = nil
+	}
 
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -80,48 +108,14 @@ func FanOut(
 
 			id := p.ID()
 			start := time.Now()
-			ch, err := p.Query(ctx, messages, fanOutOpts)
-			if err != nil {
-				mu.Lock()
-				result.Errors[id] = err
-				result.Latencies[id] = time.Since(start)
-				mu.Unlock()
-				return
-			}
-
-			var buf strings.Builder
-			var usage tokens.Usage
-			for chunk := range ch {
-				if chunk.Error != nil {
-					if onChunk != nil {
-						onChunk(id, chunk)
-					}
-					mu.Lock()
-					result.Errors[id] = chunk.Error
-					result.Latencies[id] = time.Since(start)
-					mu.Unlock()
-					return
-				}
-				if chunk.Delta != "" {
-					buf.WriteString(chunk.Delta)
-					if onChunk != nil {
-						onChunk(id, chunk)
-					}
-				}
-				if chunk.Done {
-					usage = tokens.Usage{
-						InputTokens:  chunk.InputTokens,
-						OutputTokens: chunk.OutputTokens,
-					}
-					if onChunk != nil {
-						onChunk(id, provider.StreamChunk{Done: true})
-					}
-				}
-			}
-
+			resp, usage, err := queryWithToolLoop(ctx, p, messages, fanOutOpts, toolExec, onChunk, id)
 			mu.Lock()
-			result.Responses[id] = buf.String()
-			result.Usage[id] = usage
+			if err != nil {
+				result.Errors[id] = err
+			} else {
+				result.Responses[id] = resp
+				result.Usage[id] = usage
+			}
 			result.Latencies[id] = time.Since(start)
 			mu.Unlock()
 		}(p)
@@ -129,4 +123,98 @@ func FanOut(
 
 	wg.Wait()
 	return result
+}
+
+// queryWithToolLoop queries a single provider and, if it returns tool calls
+// that can be executed by toolExec, executes them and re-queries up to
+// maxFanOutToolRounds times. Returns the accumulated text response.
+func queryWithToolLoop(
+	ctx context.Context,
+	p provider.Provider,
+	messages []provider.Message,
+	opts provider.QueryOpts,
+	toolExec FanOutToolExecutor,
+	onChunk ChunkCallback,
+	id string,
+) (string, tokens.Usage, error) {
+	msgs := make([]provider.Message, len(messages))
+	copy(msgs, messages)
+
+	var totalBuf strings.Builder
+	var lastUsage tokens.Usage
+
+	for round := 0; round <= maxFanOutToolRounds; round++ {
+		ch, err := p.Query(ctx, msgs, opts)
+		if err != nil {
+			return "", tokens.Usage{}, err
+		}
+
+		var buf strings.Builder
+		var usage tokens.Usage
+		var toolCalls []provider.ToolCall
+
+		for chunk := range ch {
+			if chunk.Error != nil {
+				if onChunk != nil {
+					onChunk(id, chunk)
+				}
+				return "", tokens.Usage{}, chunk.Error
+			}
+			if chunk.Delta != "" {
+				buf.WriteString(chunk.Delta)
+				if onChunk != nil {
+					onChunk(id, chunk)
+				}
+			}
+			if chunk.Done {
+				usage = tokens.Usage{
+					InputTokens:  chunk.InputTokens,
+					OutputTokens: chunk.OutputTokens,
+				}
+				toolCalls = append(toolCalls, chunk.ToolCalls...)
+			}
+		}
+
+		lastUsage = usage
+		responseText := buf.String()
+		totalBuf.WriteString(responseText)
+
+		// No tool calls or no executor — we're done.
+		if len(toolCalls) == 0 || toolExec == nil {
+			if onChunk != nil {
+				onChunk(id, provider.StreamChunk{Done: true})
+			}
+			return totalBuf.String(), lastUsage, nil
+		}
+
+		// Execute tool calls and build follow-up messages.
+		msgs = append(msgs, provider.Message{
+			Role:      provider.RoleAssistant,
+			Content:   responseText,
+			ToolCalls: toolCalls,
+		})
+
+		for _, call := range toolCalls {
+			output, execErr := toolExec(call)
+			content := output
+			if execErr != nil {
+				if content != "" {
+					content += "\n"
+				}
+				content += "Error: " + execErr.Error()
+			}
+			msgs = append(msgs, provider.Message{
+				Role:       provider.RoleTool,
+				Content:    content,
+				ToolCallID: call.ID,
+			})
+		}
+		// Loop to re-query with tool results.
+	}
+
+	// Exhausted rounds — return what we have.
+	if onChunk != nil {
+		onChunk(id, provider.StreamChunk{Done: true})
+	}
+	return totalBuf.String(), lastUsage, nil
 }

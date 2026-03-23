@@ -740,6 +740,20 @@ func startTUI(cfg *config.Config) error {
 				synthesisMode,
 			)
 
+			// Allow read-only tools (file_read) during fan-out so providers
+			// can inspect the codebase to give informed answers.
+			fanOutExecutor := action.NewExecutor(nil, 30*time.Second)
+			queryPipeline.SetFanOutTools(
+				action.ReadOnlyTools(),
+				func(call provider.ToolCall) (string, error) {
+					result := fanOutExecutor.Execute(call)
+					if result.Error != nil {
+						return result.Output, result.Error
+					}
+					return result.Output, nil
+				},
+			)
+
 			// Accumulate fan-out text per provider from the live (untruncated) stream.
 			// The chunk callback fires from concurrent goroutines, so this needs a mutex.
 			var fanoutMu sync.Mutex
@@ -960,8 +974,11 @@ func startTUI(cfg *config.Config) error {
 			}
 
 			// NOTE: Don't append fullResponse to conv yet — if tool execution
-			// follows, we want to combine initial text + tool output into one
-			// assistant message so future turns have full context.
+			// follows, we want to preserve the structured tool call/result
+			// messages in the conversation state for future turns.
+			var toolResponse string
+			var toolLoopMsgs []provider.Message
+			var consensusText string // consensus text before tool output (for structured conv state)
 
 			// Execute tool calls if the consensus response included them
 			if len(pendingToolCalls) > 0 {
@@ -1068,13 +1085,14 @@ func startTUI(cfg *config.Config) error {
 				toolOut := make(chan provider.StreamChunk, 16)
 				go func() {
 					defer toolCancel()
-					if err := toolLoop.Run(toolCtx, toolMsgs, pendingToolCalls, opts, toolOut); err != nil {
+					loopMsgs, err := toolLoop.RunWithMessages(toolCtx, toolMsgs, pendingToolCalls, opts, toolOut)
+					toolLoopMsgs = loopMsgs // writes to outer var; safe because consumer drains toolOut first
+					if err != nil {
 						toolOut <- provider.StreamChunk{Error: err}
 					}
 					close(toolOut)
 				}()
 
-				var toolResponse string
 				var toolLoopOK bool
 				var wroteFiles bool
 				for chunk := range toolOut {
@@ -1111,7 +1129,10 @@ func startTUI(cfg *config.Config) error {
 				}
 				toolCancel()
 
-				// Combine initial consensus text + tool follow-up
+				// Save consensus-only text before combining (needed for structured conv state).
+				consensusText = fullResponse
+
+				// Combine initial consensus text + tool follow-up for display/history.
 				if toolResponse != "" {
 					fullResponse += "\n" + toolResponse
 				}
@@ -1188,9 +1209,20 @@ func startTUI(cfg *config.Config) error {
 				program.Send(tui.ConsensusChunkMsg{Done: true})
 			}
 
-			// Append the complete assistant response (initial consensus + tool output)
-			// as a single message so future turns have full context
-			if fullResponse != "" {
+			// Append conversation messages so future turns have full context.
+			// When tool calls occurred, preserve the structured message sequence
+			// (assistant+tool_calls → tool results → follow-up assistant) so
+			// providers with native tool support get proper conversation history.
+			if len(pendingToolCalls) > 0 && len(toolLoopMsgs) > 0 {
+				// Initial assistant message with tool calls
+				conv.append(provider.Message{
+					Role:      provider.RoleAssistant,
+					Content:   consensusText,
+					ToolCalls: pendingToolCalls,
+				})
+				// Tool results and follow-up messages from the tool loop
+				conv.append(toolLoopMsgs...)
+			} else if fullResponse != "" {
 				conv.append(provider.Message{
 					Role:    provider.RoleAssistant,
 					Content: fullResponse,

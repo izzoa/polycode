@@ -33,11 +33,30 @@ func (l *ToolLoop) Run(
 	opts provider.QueryOpts,
 	out chan<- provider.StreamChunk,
 ) error {
+	_, err := l.RunWithMessages(ctx, messages, toolCalls, opts, out)
+	return err
+}
+
+// RunWithMessages is like Run but also returns the messages appended during
+// the tool loop (tool results + follow-up assistant messages). These can be
+// used to preserve structured tool call history in the conversation state.
+func (l *ToolLoop) RunWithMessages(
+	ctx context.Context,
+	messages []provider.Message,
+	toolCalls []provider.ToolCall,
+	opts provider.QueryOpts,
+	out chan<- provider.StreamChunk,
+) ([]provider.Message, error) {
 	// Work on a copy so we don't mutate the caller's slice.
 	msgs := make([]provider.Message, len(messages))
 	copy(msgs, messages)
+	initialLen := len(msgs)
 
 	currentCalls := toolCalls
+
+	appended := func() []provider.Message {
+		return msgs[initialLen:]
+	}
 
 	for {
 		if len(currentCalls) == 0 {
@@ -45,7 +64,7 @@ func (l *ToolLoop) Run(
 			case out <- provider.StreamChunk{Done: true}:
 			case <-ctx.Done():
 			}
-			return nil
+			return appended(), nil
 		}
 
 		// The assistant message with ToolCalls is already in msgs:
@@ -61,7 +80,7 @@ func (l *ToolLoop) Run(
 				Status: true,
 			}:
 			case <-ctx.Done():
-				return ctx.Err()
+				return appended(), ctx.Err()
 			}
 
 			result := l.executor.Execute(call)
@@ -86,7 +105,7 @@ func (l *ToolLoop) Run(
 					Status: true,
 				}:
 				case <-ctx.Done():
-					return ctx.Err()
+					return appended(), ctx.Err()
 				}
 			}
 
@@ -101,7 +120,7 @@ func (l *ToolLoop) Run(
 		// Send updated conversation back to the model.
 		stream, err := l.primary.Query(ctx, msgs, opts)
 		if err != nil {
-			return fmt.Errorf("tool loop: %w", err)
+			return appended(), fmt.Errorf("tool loop: %w", err)
 		}
 
 		// Stream response chunks live to output, collecting for conversation state.
@@ -109,14 +128,14 @@ func (l *ToolLoop) Run(
 		var newToolCalls []provider.ToolCall
 		for chunk := range stream {
 			if chunk.Error != nil {
-				return fmt.Errorf("tool loop: %w", chunk.Error)
+				return appended(), fmt.Errorf("tool loop: %w", chunk.Error)
 			}
 			if chunk.Delta != "" {
 				responseContent += chunk.Delta
 				select {
 				case out <- provider.StreamChunk{Delta: chunk.Delta}:
 				case <-ctx.Done():
-					return ctx.Err()
+					return appended(), ctx.Err()
 				}
 			}
 			newToolCalls = append(newToolCalls, chunk.ToolCalls...)
@@ -147,6 +166,6 @@ func (l *ToolLoop) Run(
 		case out <- provider.StreamChunk{Done: true}:
 		case <-ctx.Done():
 		}
-		return nil
+		return appended(), nil
 	}
 }
