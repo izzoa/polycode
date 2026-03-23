@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.13.3] - 2026-03-23
+
+### Fixed
+- **Crash on fan-out tool usage**: Added panic recovery to fan-out provider goroutines so a single provider panic can't crash the entire application. Panics are now captured and surfaced as errors in the provider tab.
+- **Gemini empty responses**: Gemini's SSE parser now sends a Done chunk on clean EOF when no STOP/FUNCTION_CALL finish reason was received. Previously the consumer could hang waiting for a terminal chunk, resulting in empty provider tabs.
+
 ## [1.13.2] - 2026-03-23
 
 ### Fixed

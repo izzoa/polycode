@@ -363,5 +363,10 @@ func (p *GeminiProvider) readSSE(ctx context.Context, body io.ReadCloser, ch cha
 
 	if err := scanner.Err(); err != nil {
 		ch <- StreamChunk{Error: fmt.Errorf("gemini: read stream: %w", err)}
+		return
 	}
+
+	// Stream ended without a STOP/FUNCTION_CALL finish reason — send Done
+	// so the consumer doesn't hang waiting for a terminal chunk.
+	ch <- StreamChunk{Done: true, InputTokens: inputTokens, OutputTokens: outputTokens}
 }

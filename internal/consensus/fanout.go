@@ -2,6 +2,7 @@ package consensus
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -118,6 +119,20 @@ func FanOutWithTools(
 			defer wg.Done()
 
 			id := p.ID()
+
+			// Recover from panics in provider goroutines so one provider
+			// can't crash the entire application.
+			defer func() {
+				if r := recover(); r != nil {
+					mu.Lock()
+					result.Errors[id] = fmt.Errorf("provider panicked: %v", r)
+					mu.Unlock()
+					if onChunk != nil {
+						onChunk(id, provider.StreamChunk{Error: fmt.Errorf("provider panicked: %v", r)})
+					}
+				}
+			}()
+
 			start := time.Now()
 
 			// Only pass tools to providers that support structured tool calling.
