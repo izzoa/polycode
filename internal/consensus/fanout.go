@@ -78,7 +78,14 @@ func FanOutWithTools(
 	toolExec FanOutToolExecutor,
 	toolCapable map[string]bool,
 ) *FanOutResult {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	// Extend timeout when tool loops are enabled — each round needs
+	// a full LLM call + tool execution, so the original single-round
+	// timeout is insufficient.
+	effectiveTimeout := timeout
+	if toolExec != nil && len(readOnlyTools) > 0 {
+		effectiveTimeout = timeout * time.Duration(maxFanOutToolRounds+1)
+	}
+	ctx, cancel := context.WithTimeout(ctx, effectiveTimeout)
 	defer cancel()
 
 	result := &FanOutResult{
@@ -159,6 +166,13 @@ func queryWithToolLoop(
 	for round := 0; round <= maxFanOutToolRounds; round++ {
 		ch, err := p.Query(ctx, msgs, opts)
 		if err != nil {
+			// Return any content accumulated from previous rounds.
+			if totalBuf.Len() > 0 {
+				if onChunk != nil {
+					onChunk(id, provider.StreamChunk{Done: true})
+				}
+				return totalBuf.String(), totalUsage, nil
+			}
 			return "", totalUsage, err
 		}
 
@@ -169,6 +183,14 @@ func queryWithToolLoop(
 			if chunk.Error != nil {
 				if onChunk != nil {
 					onChunk(id, chunk)
+				}
+				// Return any content accumulated so far (this round + previous).
+				totalBuf.WriteString(buf.String())
+				if totalBuf.Len() > 0 {
+					if onChunk != nil {
+						onChunk(id, provider.StreamChunk{Done: true})
+					}
+					return totalBuf.String(), totalUsage, nil
 				}
 				return "", totalUsage, chunk.Error
 			}

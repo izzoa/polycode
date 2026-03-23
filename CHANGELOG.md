@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.13.1] - 2026-03-23
+
+### Fixed
+- **Fan-out timeout too short for tool loops**: Fan-out timeout is now extended proportionally when tool loops are enabled (timeout × 4 for up to 3 tool rounds). Previously providers using `file_read` during fan-out would hit "context deadline exceeded" because the single-round timeout was shared across multiple LLM calls.
+- **Empty provider responses on timeout**: When a provider's tool re-query is interrupted by timeout, any content accumulated from earlier rounds is now preserved and returned instead of being discarded. Fixes empty provider tabs (e.g., Gemini) when tool loops partially complete.
+
 ## [1.13.0] - 2026-03-23
 
 ### Added
