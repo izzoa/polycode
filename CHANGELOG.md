@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [1.13.0] - 2026-03-23
 
 ### Added
-- **Fan-out tool access**: Providers can now use `file_read`, MCP tools, and skill tools during fan-out to inspect the codebase and gather context before responding, instead of giving generic advice. Write and exec built-in tools remain synthesis-only.
+- **Fan-out tool access**: Providers can now use `file_read`, MCP tools, and skill tools during fan-out to inspect the codebase and gather context before responding. Write/exec built-in tools remain synthesis-only. Tools are only sent to providers that litellm metadata confirms support structured tool calling — others get a clean prompt without tools.
 
 ### Fixed
 - **Tool results lost from conversation history**: Tool calls and results are now preserved as structured messages in the conversation state (assistant+tool_calls → tool results → follow-up). Previously they were flattened to a single text blob, so providers lost tool context on subsequent turns.

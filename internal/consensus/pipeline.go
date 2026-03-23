@@ -24,6 +24,7 @@ type Pipeline struct {
 	// call read-only tools (e.g., file_read) during their fan-out response.
 	fanOutTools    []provider.ToolDefinition
 	fanOutToolExec FanOutToolExecutor
+	toolCapable    map[string]bool // provider IDs known to support tool calling
 }
 
 // NewPipeline creates a Pipeline.
@@ -74,9 +75,12 @@ func (p *Pipeline) SetChunkCallback(cb ChunkCallback) {
 
 // SetFanOutTools configures read-only tools available to providers during
 // fan-out. The executor handles the actual tool execution (e.g., file_read).
-func (p *Pipeline) SetFanOutTools(tools []provider.ToolDefinition, exec FanOutToolExecutor) {
+// toolCapable maps provider IDs that support structured tool calling — others
+// won't receive tools. Pass nil to send tools to all providers.
+func (p *Pipeline) SetFanOutTools(tools []provider.ToolDefinition, exec FanOutToolExecutor, toolCapable map[string]bool) {
 	p.fanOutTools = tools
 	p.fanOutToolExec = exec
+	p.toolCapable = toolCapable
 }
 
 // Run executes the full consensus pipeline:
@@ -103,7 +107,7 @@ func (p *Pipeline) Run(
 	}
 
 	// Phase 1: fan-out (with read-only tools if configured).
-	fanOutResult := FanOutWithTools(ctx, p.providers, messages, opts, p.timeout, p.tracker, p.onChunk, p.fanOutTools, p.fanOutToolExec)
+	fanOutResult := FanOutWithTools(ctx, p.providers, messages, opts, p.timeout, p.tracker, p.onChunk, p.fanOutTools, p.fanOutToolExec, p.toolCapable)
 
 	// Truncate fan-out responses to fit within the primary model's context.
 	if p.truncateBudget > 0 && len(fanOutResult.Responses) > 0 {

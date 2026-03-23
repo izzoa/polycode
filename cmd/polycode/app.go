@@ -740,12 +740,50 @@ func startTUI(cfg *config.Config) error {
 				synthesisMode,
 			)
 
-			// Allow read-only tools (file_read only) during fan-out so providers
-			// can inspect the codebase to give informed answers. MCP/skill tools
-			// are excluded — they may have side effects and lack permission gates.
+			// Allow read-only built-in tools + MCP + skill tools during fan-out
+			// so providers can inspect the codebase and use external tools.
+			// Write/exec built-in tools remain synthesis-only.
+			// Only send tools to providers whose model supports structured tool
+			// calling according to litellm metadata.
+			toolCapable := make(map[string]bool)
+			for _, pc := range cfg.Providers {
+				if metadataStore != nil {
+					toolCapable[pc.Name] = metadataStore.SupportsToolCalling(pc.Model, string(pc.Type))
+				} else {
+					// No metadata — known first-party types support tools
+					switch pc.Type {
+					case "anthropic", "openai", "google":
+						toolCapable[pc.Name] = true
+					}
+				}
+			}
+
+			fanOutTools := action.ReadOnlyTools()
+			if mcpClient != nil {
+				fanOutTools = append(fanOutTools, mcpClient.ToToolDefinitions()...)
+			}
+			fanOutTools = append(fanOutTools, skillReg.ToToolDefinitions()...)
+
 			fanOutExecutor := action.NewExecutor(nil, 30*time.Second)
+			fanOutExecutor.SetExternalHandler(func(call provider.ToolCall) (string, error) {
+				if mcpClient != nil && len(call.Name) > 4 && call.Name[:4] == "mcp_" {
+					rest := call.Name[4:]
+					for i, ch := range rest {
+						if ch == '_' {
+							serverName := rest[:i]
+							toolName := rest[i+1:]
+							return mcpClient.CallTool(ctx, serverName, toolName, []byte(call.Arguments))
+						}
+					}
+				}
+				if len(call.Name) > 6 && call.Name[:6] == "skill_" {
+					return skillReg.ExecuteTool(ctx, call.Name, call.Arguments)
+				}
+				return "", fmt.Errorf("unknown tool: %s", call.Name)
+			})
+
 			queryPipeline.SetFanOutTools(
-				action.ReadOnlyTools(),
+				fanOutTools,
 				func(call provider.ToolCall) (string, error) {
 					result := fanOutExecutor.Execute(call)
 					if result.Error != nil {
@@ -753,6 +791,7 @@ func startTUI(cfg *config.Config) error {
 					}
 					return result.Output, nil
 				},
+				toolCapable,
 			)
 
 			// Accumulate fan-out text per provider from the live (untruncated) stream.

@@ -243,6 +243,17 @@ func (s *MetadataStore) CapabilitiesForModel(model string, providerType string) 
 	return ModelInfo{}
 }
 
+// SupportsToolCalling returns true if the model is known to support
+// structured tool/function calling according to litellm metadata.
+// Returns true for unknown models (optimistic default).
+func (s *MetadataStore) SupportsToolCalling(model string, providerType string) bool {
+	info, ok := s.Lookup(model, providerType)
+	if !ok {
+		return true // optimistic: unknown models get tools
+	}
+	return info.SupportsFunctionCalling
+}
+
 // providerMatcher defines how to find models for a provider in the litellm
 // metadata JSON. Keys use various conventions:
 //   - Bare keys: "claude-sonnet-4-20250514", "gpt-4o", "o3-mini"

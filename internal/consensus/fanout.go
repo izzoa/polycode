@@ -57,12 +57,15 @@ func FanOut(
 	tracker *tokens.TokenTracker,
 	onChunk ChunkCallback,
 ) *FanOutResult {
-	return FanOutWithTools(ctx, providers, messages, opts, timeout, tracker, onChunk, nil, nil)
+	return FanOutWithTools(ctx, providers, messages, opts, timeout, tracker, onChunk, nil, nil, nil)
 }
 
 // FanOutWithTools is like FanOut but allows read-only tools during fan-out.
 // readOnlyTools are the tool definitions sent to providers (e.g., file_read).
 // toolExec executes tool calls; if nil, tools are stripped from the request.
+// toolCapable lists provider IDs that support structured tool calling.
+// Providers not in this set receive no tools (even if readOnlyTools is set).
+// If toolCapable is nil, all providers get tools (backward compat).
 func FanOutWithTools(
 	ctx context.Context,
 	providers []provider.Provider,
@@ -73,6 +76,7 @@ func FanOutWithTools(
 	onChunk ChunkCallback,
 	readOnlyTools []provider.ToolDefinition,
 	toolExec FanOutToolExecutor,
+	toolCapable map[string]bool,
 ) *FanOutResult {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -108,7 +112,16 @@ func FanOutWithTools(
 
 			id := p.ID()
 			start := time.Now()
-			resp, usage, err := queryWithToolLoop(ctx, p, messages, fanOutOpts, toolExec, onChunk, id)
+
+			// Only pass tools to providers that support structured tool calling.
+			provOpts := fanOutOpts
+			provExec := toolExec
+			if toolCapable != nil && !toolCapable[id] {
+				provOpts.Tools = nil
+				provExec = nil
+			}
+
+			resp, usage, err := queryWithToolLoop(ctx, p, messages, provOpts, provExec, onChunk, id)
 			mu.Lock()
 			if err != nil {
 				result.Errors[id] = err
