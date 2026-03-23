@@ -132,6 +132,10 @@ func FanOutWithTools(
 			mu.Lock()
 			if err != nil {
 				result.Errors[id] = err
+				// Preserve partial content even on error so it's not lost.
+				if resp != "" {
+					result.Responses[id] = resp
+				}
 			} else {
 				result.Responses[id] = resp
 				result.Usage[id] = usage
@@ -166,14 +170,8 @@ func queryWithToolLoop(
 	for round := 0; round <= maxFanOutToolRounds; round++ {
 		ch, err := p.Query(ctx, msgs, opts)
 		if err != nil {
-			// Return any content accumulated from previous rounds.
-			if totalBuf.Len() > 0 {
-				if onChunk != nil {
-					onChunk(id, provider.StreamChunk{Done: true})
-				}
-				return totalBuf.String(), totalUsage, nil
-			}
-			return "", totalUsage, err
+			// Return partial content + the error — don't mask as success.
+			return totalBuf.String(), totalUsage, err
 		}
 
 		var buf strings.Builder
@@ -184,15 +182,9 @@ func queryWithToolLoop(
 				if onChunk != nil {
 					onChunk(id, chunk)
 				}
-				// Return any content accumulated so far (this round + previous).
+				// Return partial content + error — don't mask as success.
 				totalBuf.WriteString(buf.String())
-				if totalBuf.Len() > 0 {
-					if onChunk != nil {
-						onChunk(id, provider.StreamChunk{Done: true})
-					}
-					return totalBuf.String(), totalUsage, nil
-				}
-				return "", totalUsage, chunk.Error
+				return totalBuf.String(), totalUsage, chunk.Error
 			}
 			if chunk.Delta != "" {
 				buf.WriteString(chunk.Delta)

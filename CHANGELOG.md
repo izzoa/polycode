@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.13.2] - 2026-03-23
+
+### Fixed
+- **Fan-out tool failures masked as success**: When a provider's tool re-query fails or times out, the error is now correctly propagated instead of being masked as a successful response with partial text. Provider tabs now show the error state instead of a misleading checkmark.
+- **OpenAI-compatible providers dropping tool calls on EOF**: The SSE parser now flushes buffered tool calls when a provider closes the stream without sending `[DONE]`. This was preventing `file_read` from being executed for providers that omit the `[DONE]` sentinel.
+
 ## [1.13.1] - 2026-03-23
 
 ### Fixed

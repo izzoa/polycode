@@ -334,5 +334,26 @@ func readOpenAISSE(ctx context.Context, body io.ReadCloser, ch chan<- StreamChun
 
 	if err := scanner.Err(); err != nil {
 		ch <- StreamChunk{Error: fmt.Errorf("openai: read stream: %w", err)}
+		return
 	}
+
+	// Stream ended without [DONE] — flush any buffered tool calls so they
+	// aren't silently dropped. Some OpenAI-compatible providers close the
+	// stream after the final JSON chunk without sending [DONE].
+	var calls []ToolCall
+	for i, tb := range toolBufs {
+		if tb.name == "" {
+			continue
+		}
+		id := tb.id
+		if id == "" {
+			id = fmt.Sprintf("polycode_call_%d", i)
+		}
+		calls = append(calls, ToolCall{
+			ID:        id,
+			Name:      tb.name,
+			Arguments: tb.args.String(),
+		})
+	}
+	ch <- StreamChunk{Done: true, ToolCalls: calls, InputTokens: inputTokens, OutputTokens: outputTokens}
 }
