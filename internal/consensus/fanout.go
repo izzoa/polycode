@@ -3,6 +3,8 @@ package consensus
 import (
 	"context"
 	"fmt"
+	"os"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -124,12 +126,16 @@ func FanOutWithTools(
 			// can't crash the entire application.
 			defer func() {
 				if r := recover(); r != nil {
+					stack := string(debug.Stack())
+					err := fmt.Errorf("provider panicked: %v\n%s", r, stack)
 					mu.Lock()
-					result.Errors[id] = fmt.Errorf("provider panicked: %v", r)
+					result.Errors[id] = err
 					mu.Unlock()
 					if onChunk != nil {
 						onChunk(id, provider.StreamChunk{Error: fmt.Errorf("provider panicked: %v", r)})
 					}
+					// Log the full stack trace for debugging.
+					fmt.Fprintf(os.Stderr, "PANIC in provider %s: %v\n%s\n", id, r, stack)
 				}
 			}()
 
