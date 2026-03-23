@@ -740,35 +740,12 @@ func startTUI(cfg *config.Config) error {
 				synthesisMode,
 			)
 
-			// Allow read-only tools during fan-out so providers can inspect the
-			// codebase and use MCP/skill tools to give informed answers.
-			// Write/exec built-in tools remain synthesis-only.
-			fanOutTools := action.ReadOnlyTools()
-			if mcpClient != nil {
-				fanOutTools = append(fanOutTools, mcpClient.ToToolDefinitions()...)
-			}
-			fanOutTools = append(fanOutTools, skillReg.ToToolDefinitions()...)
-
+			// Allow read-only tools (file_read only) during fan-out so providers
+			// can inspect the codebase to give informed answers. MCP/skill tools
+			// are excluded — they may have side effects and lack permission gates.
 			fanOutExecutor := action.NewExecutor(nil, 30*time.Second)
-			fanOutExecutor.SetExternalHandler(func(call provider.ToolCall) (string, error) {
-				if mcpClient != nil && len(call.Name) > 4 && call.Name[:4] == "mcp_" {
-					rest := call.Name[4:]
-					for i, ch := range rest {
-						if ch == '_' {
-							serverName := rest[:i]
-							toolName := rest[i+1:]
-							return mcpClient.CallTool(ctx, serverName, toolName, []byte(call.Arguments))
-						}
-					}
-				}
-				if len(call.Name) > 6 && call.Name[:6] == "skill_" {
-					return skillReg.ExecuteTool(ctx, call.Name, call.Arguments)
-				}
-				return "", fmt.Errorf("unknown tool: %s", call.Name)
-			})
-
 			queryPipeline.SetFanOutTools(
-				fanOutTools,
+				action.ReadOnlyTools(),
 				func(call provider.ToolCall) (string, error) {
 					result := fanOutExecutor.Execute(call)
 					if result.Error != nil {
@@ -1128,11 +1105,11 @@ func startTUI(cfg *config.Config) error {
 							Error:        chunk.Error,
 						})
 						appendTrace(primaryID, "tool", "[ERROR: "+chunk.Error.Error()+"]")
-						break
+						continue // drain remaining chunks so goroutine can finish
 					}
 					if chunk.Done {
 						toolLoopOK = true
-						break
+						continue // drain remaining chunks so goroutine can finish
 					}
 					// Track whether any file_write was executed
 					if chunk.Status && strings.Contains(chunk.Delta, "file_write") {
@@ -1151,6 +1128,7 @@ func startTUI(cfg *config.Config) error {
 						toolResponse += chunk.Delta
 					}
 				}
+				// Channel is closed — goroutine has finished, toolLoopMsgs is safe to read.
 				toolCancel()
 
 				// Save consensus-only text before combining (needed for structured conv state).

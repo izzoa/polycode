@@ -141,16 +141,15 @@ func queryWithToolLoop(
 	copy(msgs, messages)
 
 	var totalBuf strings.Builder
-	var lastUsage tokens.Usage
+	var totalUsage tokens.Usage
 
 	for round := 0; round <= maxFanOutToolRounds; round++ {
 		ch, err := p.Query(ctx, msgs, opts)
 		if err != nil {
-			return "", tokens.Usage{}, err
+			return "", totalUsage, err
 		}
 
 		var buf strings.Builder
-		var usage tokens.Usage
 		var toolCalls []provider.ToolCall
 
 		for chunk := range ch {
@@ -158,7 +157,7 @@ func queryWithToolLoop(
 				if onChunk != nil {
 					onChunk(id, chunk)
 				}
-				return "", tokens.Usage{}, chunk.Error
+				return "", totalUsage, chunk.Error
 			}
 			if chunk.Delta != "" {
 				buf.WriteString(chunk.Delta)
@@ -167,24 +166,30 @@ func queryWithToolLoop(
 				}
 			}
 			if chunk.Done {
-				usage = tokens.Usage{
-					InputTokens:  chunk.InputTokens,
-					OutputTokens: chunk.OutputTokens,
-				}
+				// Accumulate usage across all rounds.
+				totalUsage.InputTokens += chunk.InputTokens
+				totalUsage.OutputTokens += chunk.OutputTokens
 				toolCalls = append(toolCalls, chunk.ToolCalls...)
 			}
 		}
 
-		lastUsage = usage
 		responseText := buf.String()
 		totalBuf.WriteString(responseText)
 
-		// No tool calls or no executor — we're done.
-		if len(toolCalls) == 0 || toolExec == nil {
+		// No tool calls, no executor, or last round — we're done.
+		if len(toolCalls) == 0 || toolExec == nil || round == maxFanOutToolRounds {
 			if onChunk != nil {
 				onChunk(id, provider.StreamChunk{Done: true})
 			}
-			return totalBuf.String(), lastUsage, nil
+			return totalBuf.String(), totalUsage, nil
+		}
+
+		// Check context before executing tools.
+		if ctx.Err() != nil {
+			if onChunk != nil {
+				onChunk(id, provider.StreamChunk{Done: true})
+			}
+			return totalBuf.String(), totalUsage, nil
 		}
 
 		// Execute tool calls and build follow-up messages.
@@ -195,6 +200,9 @@ func queryWithToolLoop(
 		})
 
 		for _, call := range toolCalls {
+			if ctx.Err() != nil {
+				break // respect fan-out timeout
+			}
 			output, execErr := toolExec(call)
 			content := output
 			if execErr != nil {
@@ -212,9 +220,9 @@ func queryWithToolLoop(
 		// Loop to re-query with tool results.
 	}
 
-	// Exhausted rounds — return what we have.
+	// Should not reach here (loop exits via return), but just in case.
 	if onChunk != nil {
 		onChunk(id, provider.StreamChunk{Done: true})
 	}
-	return totalBuf.String(), lastUsage, nil
+	return totalBuf.String(), totalUsage, nil
 }
