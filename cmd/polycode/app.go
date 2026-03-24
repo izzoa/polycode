@@ -768,33 +768,26 @@ func startTUI(cfg *config.Config) error {
 				}
 			}
 
+			// Fan-out only gets read-only built-in tools (file_read).
+			// MCP/skill tools are excluded — they may have side effects and
+			// execute without confirmation during concurrent fan-out.
 			fanOutTools := action.ReadOnlyTools()
-			if mcpClient != nil {
-				fanOutTools = append(fanOutTools, mcpClient.ToToolDefinitions()...)
+
+			// Build allowed tool name set for fan-out safety filtering.
+			allowedFanOutTools := make(map[string]bool, len(fanOutTools))
+			for _, t := range fanOutTools {
+				allowedFanOutTools[t.Name] = true
 			}
-			fanOutTools = append(fanOutTools, skillReg.ToToolDefinitions()...)
 
 			fanOutExecutor := action.NewExecutor(nil, 30*time.Second)
-			fanOutExecutor.SetExternalHandler(func(call provider.ToolCall) (string, error) {
-				if mcpClient != nil && len(call.Name) > 4 && call.Name[:4] == "mcp_" {
-					rest := call.Name[4:]
-					for i, ch := range rest {
-						if ch == '_' {
-							serverName := rest[:i]
-							toolName := rest[i+1:]
-							return mcpClient.CallTool(ctx, serverName, toolName, []byte(call.Arguments))
-						}
-					}
-				}
-				if len(call.Name) > 6 && call.Name[:6] == "skill_" {
-					return skillReg.ExecuteTool(ctx, call.Name, call.Arguments)
-				}
-				return "", fmt.Errorf("unknown tool: %s", call.Name)
-			})
-
 			queryPipeline.SetFanOutTools(
 				fanOutTools,
 				func(call provider.ToolCall) (string, error) {
+					// Reject tools that weren't offered — providers can hallucinate
+					// tool names like shell_exec even when only file_read was given.
+					if !allowedFanOutTools[call.Name] {
+						return "", fmt.Errorf("tool %q not available during fan-out", call.Name)
+					}
 					result := fanOutExecutor.Execute(call)
 					if result.Error != nil {
 						return result.Output, result.Error

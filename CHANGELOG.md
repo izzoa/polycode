@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.14.1] - 2026-03-24
+
+### Fixed
+- **Crash: nil confirm callback on hallucinated tool calls** — Providers that hallucinate `shell_exec` or `file_write` during fan-out (when only `file_read` was offered) no longer crash the app. Fan-out executor now rejects tool calls not in the offered set. Added nil guards on `e.confirm` in `file_write` and `shell_exec` as defense in depth.
+- **file_read on directories returns listing** — When a provider calls `file_read` on a directory path, it now returns a directory listing instead of "is a directory" error. Listing restricted to paths within the working directory to prevent filesystem reconnaissance.
+- **MCP/skill tools removed from fan-out** — External tools excluded from fan-out since they may have side effects and execute without user confirmation during concurrent queries. Fan-out is now strictly `file_read` only.
+
 ## [1.14.0] - 2026-03-23
 
 ### Added

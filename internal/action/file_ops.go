@@ -35,12 +35,52 @@ func validatePath(path string) (string, error) {
 }
 
 // readFile reads the contents of a file and returns them as a ToolResult.
+// If the path is a directory, it returns a listing of its contents.
 // No confirmation is required for read operations.
 func (e *Executor) readFile(path string) ToolResult {
 	cleanPath, err := validatePath(path)
 	if err != nil {
 		return ToolResult{Error: err}
 	}
+
+	info, err := os.Stat(cleanPath)
+	if err != nil {
+		return ToolResult{
+			Error: fmt.Errorf("failed to read file %s: %w", path, err),
+		}
+	}
+
+	// If path is a directory, return a listing instead of an error.
+	// Only allow directory listing within the working directory to prevent
+	// filesystem reconnaissance on sensitive paths.
+	if info.IsDir() {
+		wd, wdErr := os.Getwd()
+		if wdErr != nil {
+			return ToolResult{Error: fmt.Errorf("cannot determine working directory: %w", wdErr)}
+		}
+		if !strings.HasPrefix(cleanPath, wd+string(filepath.Separator)) && cleanPath != wd {
+			return ToolResult{
+				Error: fmt.Errorf("file_read: %s is a directory (directory listing only allowed within the project)", path),
+			}
+		}
+		entries, dirErr := os.ReadDir(cleanPath)
+		if dirErr != nil {
+			return ToolResult{
+				Error: fmt.Errorf("failed to list directory %s: %w", path, dirErr),
+			}
+		}
+		var listing strings.Builder
+		fmt.Fprintf(&listing, "Directory listing of %s:\n", path)
+		for _, entry := range entries {
+			name := entry.Name()
+			if entry.IsDir() {
+				name += "/"
+			}
+			listing.WriteString(name + "\n")
+		}
+		return ToolResult{Output: listing.String()}
+	}
+
 	data, err := os.ReadFile(cleanPath)
 	if err != nil {
 		return ToolResult{
@@ -135,6 +175,11 @@ func (e *Executor) writeFile(path string, content string) ToolResult {
 		description = fmt.Sprintf("Create new file %s:\n%s", path, preview)
 	}
 
+	if e.confirm == nil {
+		return ToolResult{
+			Error: fmt.Errorf("file_write: no confirmation callback configured"),
+		}
+	}
 	if !e.confirm("file_write", description) {
 		return ToolResult{
 			Output: "file write cancelled by user",

@@ -68,6 +68,11 @@ func (e *Executor) execShell(command string, workDir string) ToolResult {
 		description += "\n\n  WARNING: This command appears to be destructive!"
 	}
 
+	if e.confirm == nil {
+		return ToolResult{
+			Error: fmt.Errorf("shell_exec: no confirmation callback configured"),
+		}
+	}
 	if !e.confirm("shell_exec", description) {
 		return ToolResult{
 			Output: "command execution cancelled by user",
