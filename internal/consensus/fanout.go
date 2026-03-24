@@ -38,9 +38,9 @@ type ChunkCallback func(providerID string, chunk provider.StreamChunk)
 // provider goroutines, so the implementation must be safe for concurrent use.
 type FanOutToolExecutor func(call provider.ToolCall) (output string, err error)
 
-// maxFanOutToolRounds caps the number of tool-call → re-query cycles per
-// provider during fan-out to prevent runaway loops.
-const maxFanOutToolRounds = 3
+// fanOutToolTimeout is the per-provider timeout for fan-out with tools.
+// Providers can use as many tool rounds as they want within this window.
+const fanOutToolTimeout = 5 * time.Minute
 
 // FanOut dispatches a query to all providers concurrently, collects their
 // streaming responses into complete strings, and returns once every provider
@@ -81,12 +81,12 @@ func FanOutWithTools(
 	toolExec FanOutToolExecutor,
 	toolCapable map[string]bool,
 ) *FanOutResult {
-	// Extend timeout when tool loops are enabled — each round needs
-	// a full LLM call + tool execution, so the original single-round
-	// timeout is insufficient.
+	// When tools are enabled, use the longer tool timeout so providers
+	// can run as many tool rounds as they need. The context timeout is
+	// the only bound — no artificial round cap.
 	effectiveTimeout := timeout
 	if toolExec != nil && len(readOnlyTools) > 0 {
-		effectiveTimeout = timeout * time.Duration(maxFanOutToolRounds+1)
+		effectiveTimeout = fanOutToolTimeout
 	}
 	ctx, cancel := context.WithTimeout(ctx, effectiveTimeout)
 	defer cancel()
@@ -172,7 +172,7 @@ func FanOutWithTools(
 
 // queryWithToolLoop queries a single provider and, if it returns tool calls
 // that can be executed by toolExec, executes them and re-queries up to
-// maxFanOutToolRounds times. Returns the accumulated text response.
+// MaxFanOutToolRounds times. Returns the accumulated text response.
 func queryWithToolLoop(
 	ctx context.Context,
 	p provider.Provider,
@@ -188,7 +188,7 @@ func queryWithToolLoop(
 	var totalBuf strings.Builder
 	var totalUsage tokens.Usage
 
-	for round := 0; round <= maxFanOutToolRounds; round++ {
+	for {
 		ch, err := p.Query(ctx, msgs, opts)
 		if err != nil {
 			// Surface the error to the TUI so the tab shows failure.
@@ -227,8 +227,8 @@ func queryWithToolLoop(
 		responseText := buf.String()
 		totalBuf.WriteString(responseText)
 
-		// No tool calls, no executor, or last round — we're done.
-		if len(toolCalls) == 0 || toolExec == nil || round == maxFanOutToolRounds {
+		// No tool calls or no executor — we're done.
+		if len(toolCalls) == 0 || toolExec == nil {
 			if onChunk != nil {
 				onChunk(id, provider.StreamChunk{Done: true})
 			}
@@ -292,10 +292,4 @@ func queryWithToolLoop(
 		}
 		// Loop to re-query with tool results.
 	}
-
-	// Should not reach here (loop exits via return), but just in case.
-	if onChunk != nil {
-		onChunk(id, provider.StreamChunk{Done: true})
-	}
-	return totalBuf.String(), totalUsage, nil
 }

@@ -705,7 +705,9 @@ func startTUI(cfg *config.Config) error {
 				ReasoningEffort: reasoningEffort,
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), cfg.Consensus.Timeout+30*time.Second)
+			// Query timeout: fan-out tool loops run until the model stops or
+			// the timeout expires (5 min for tools). Add synthesis overhead.
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute+30*time.Second)
 			defer cancel()
 
 			// Re-select providers per query (adaptive routing)

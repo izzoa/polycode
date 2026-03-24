@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.14.2] - 2026-03-24
+
+### Changed
+- **No fan-out tool round cap**: Providers can use as many tool rounds as they need during fan-out, bounded only by the 5-minute timeout — matching the primary tool loop behavior. Previously capped at 3 rounds.
+
+### Fixed
+- **Fan-out timeout killed by parent context**: The outer query context (90s) was shorter than the fan-out tool timeout, making the extension useless due to Go context inheritance. Now uses 5m30s to accommodate tool loops.
+
 ## [1.14.1] - 2026-03-24
 
 ### Fixed
