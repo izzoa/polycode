@@ -99,9 +99,14 @@ func FanOutWithTools(
 	}
 
 	// Build fan-out opts: use read-only tools if provided, otherwise strip all.
+	// Increase max tokens for fan-out since providers with tools need room for
+	// both reasoning and tool calls across multiple rounds.
 	fanOutOpts := opts
 	if toolExec != nil && len(readOnlyTools) > 0 {
 		fanOutOpts.Tools = readOnlyTools
+		if fanOutOpts.MaxTokens < 16384 {
+			fanOutOpts.MaxTokens = 16384
+		}
 	} else {
 		fanOutOpts.Tools = nil
 	}

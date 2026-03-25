@@ -404,7 +404,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if msg.Done {
 					m.panels[i].Status = StatusDone
 				} else {
-					m.panels[i].Status = StatusLoading
+					// Don't downgrade from Failed back to Loading.
+					if m.panels[i].Status != StatusFailed {
+						m.panels[i].Status = StatusLoading
+					}
 					m.panels[i].appendTraceContent(msg.Phase, msg.Delta)
 				}
 				m.panels[i].Viewport.SetContent(m.panels[i].Content.String())
@@ -664,6 +667,26 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 	case "enter":
+		// Palette open: Enter accepts the selection (same as Tab) instead of submitting.
+		if m.paletteOpen && len(m.paletteMatches) > 0 {
+			selected := m.paletteMatches[0]
+			name := selected.Name
+			hasArgs := strings.ContainsAny(name, "<[")
+			if idx := strings.IndexAny(name, "<["); idx > 0 {
+				name = name[:idx]
+			}
+			m.textarea.Reset()
+			m.textarea.SetValue(name)
+			m.paletteOpen = false
+			// If command takes no args, execute it immediately.
+			if !hasArgs {
+				// Re-trigger Enter to submit
+				return m, func() tea.Msg {
+					return tea.KeyMsg{Type: tea.KeyEnter}
+				}
+			}
+			return m, nil
+		}
 		// Tab bar focused: Enter on mode selector opens picker, otherwise returns to textarea
 		if m.tabBarFocused {
 			if m.activeTab == -1 {

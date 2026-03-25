@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-03-25
+
+### Added
+- **Command palette Enter accepts selection**: Pressing Enter on a command palette match now accepts it. Commands with arguments (e.g., `/mode`) insert the prefix and let you type the argument; commands without arguments execute immediately.
+
+### Changed
+- **Fan-out max_tokens increased to 16384**: Providers with tools get 4x more output tokens for fan-out, giving enough room for reasoning + multiple tool call rounds.
+- **No fan-out tool round cap**: Providers can use as many tool rounds as they need, bounded only by the 5-minute timeout.
+
+### Fixed
+- **Splash screen version displayed as "vv1.x.x"**: The version string already includes a `v` prefix from Go build info; the splash no longer adds a redundant one.
+- **Provider status reset during synthesis**: Synthesis traces no longer downgrade a provider's status from Failed back to Loading. A fan-out failure now stays visible in the tab bar instead of being hidden behind a spinner.
+- **Fan-out timeout killed by parent context**: Outer query context extended to 5m30s so the parent doesn't expire before the fan-out tool timeout.
+
 ## [1.14.2] - 2026-03-24
 
 ### Changed

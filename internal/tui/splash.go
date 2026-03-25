@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -31,7 +30,11 @@ func (m Model) renderSplash() string {
 	// Version line
 	versionStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("245"))
-	versionLine := versionStyle.Render(fmt.Sprintf("v%s", m.version))
+	ver := m.version
+	if ver != "" && ver[0] != 'v' {
+		ver = "v" + ver
+	}
+	versionLine := versionStyle.Render(ver)
 
 	// Tagline
 	taglineStyle := lipgloss.NewStyle().
