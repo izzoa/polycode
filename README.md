@@ -94,7 +94,9 @@ Polycode fetches model information from [litellm's model database](https://githu
 
 The consensus output can drive coding actions, just like single-model assistants:
 
-- **File read** — read file contents into conversation context (no confirmation needed, path traversal blocked)
+- **File read** — read file contents into conversation context (no confirmation needed, path traversal blocked). Directories return a listing.
+- **List directory** — list directory contents, optionally recursive (up to 3 levels). Available during fan-out for all providers.
+- **Grep search** — search for text/regex patterns across project files with file type filtering. Available during fan-out for all providers.
 - **File write** — propose changes with **unified diff preview** (`+`/`-` lines for existing files, content preview for new files), user confirms before applying
 - **Shell exec** — run commands with confirmation, **hardened destructive command detection** (`rm`, `sudo`, pipe-to-shell, `/dev/` paths, clobber operators, and more)
 - **Tool-use loop** — the primary model can chain tool calls until done (no iteration limit, bounded by the 5-minute context timeout)

@@ -56,6 +56,10 @@ func (e *Executor) Execute(call provider.ToolCall) ToolResult {
 		return e.executeFileWrite(call)
 	case "shell_exec":
 		return e.executeShellExec(call)
+	case "list_directory":
+		return e.executeListDirectory(call)
+	case "grep_search":
+		return e.executeGrepSearch(call)
 	default:
 		// Try external handler (e.g. MCP tools) before failing
 		if e.external != nil {

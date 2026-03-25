@@ -667,25 +667,35 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 	case "enter":
-		// Palette open: Enter accepts the selection (same as Tab) instead of submitting.
+		// Palette open: if user hasn't typed arguments yet, Enter accepts the
+		// palette selection (like Tab). If they already typed the full command
+		// with arguments (e.g., "/mode thorough"), close palette and submit.
 		if m.paletteOpen && len(m.paletteMatches) > 0 {
+			currentVal := strings.TrimSpace(m.textarea.Value())
 			selected := m.paletteMatches[0]
-			name := selected.Name
-			hasArgs := strings.ContainsAny(name, "<[")
-			if idx := strings.IndexAny(name, "<["); idx > 0 {
-				name = name[:idx]
+			cmdName := selected.Name
+			if idx := strings.IndexAny(cmdName, "<["); idx > 0 {
+				cmdName = strings.TrimSpace(cmdName[:idx])
 			}
-			m.textarea.Reset()
-			m.textarea.SetValue(name)
-			m.paletteOpen = false
-			// If command takes no args, execute it immediately.
-			if !hasArgs {
-				// Re-trigger Enter to submit
-				return m, func() tea.Msg {
-					return tea.KeyMsg{Type: tea.KeyEnter}
+			// If user typed more than just the command name, they've added
+			// arguments — close palette and let Enter submit normally.
+			if strings.Contains(currentVal, " ") && len(currentVal) > len(cmdName) {
+				m.paletteOpen = false
+				// Fall through to normal Enter handling below
+			} else {
+				// No arguments yet — accept the palette selection.
+				hasArgs := strings.ContainsAny(selected.Name, "<[")
+				m.textarea.Reset()
+				m.textarea.SetValue(cmdName + " ")
+				m.paletteOpen = false
+				if !hasArgs {
+					m.textarea.SetValue(cmdName)
+					return m, func() tea.Msg {
+						return tea.KeyMsg{Type: tea.KeyEnter}
+					}
 				}
+				return m, nil
 			}
-			return m, nil
 		}
 		// Tab bar focused: Enter on mode selector opens picker, otherwise returns to textarea
 		if m.tabBarFocused {

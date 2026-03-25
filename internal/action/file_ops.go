@@ -1,10 +1,15 @@
 package action
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+
+	"github.com/izzoa/polycode/internal/provider"
 )
 
 // validatePath cleans a path and validates it against traversal attacks.
@@ -203,4 +208,207 @@ func (e *Executor) writeFile(path string, content string) ToolResult {
 	return ToolResult{
 		Output: fmt.Sprintf("successfully wrote %d bytes to %s", len(content), path),
 	}
+}
+
+func (e *Executor) executeListDirectory(call provider.ToolCall) ToolResult {
+	var args struct {
+		Path      string `json:"path"`
+		Recursive bool   `json:"recursive"`
+	}
+	if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
+		return ToolResult{
+			ToolCallID: call.ID,
+			Error:      fmt.Errorf("invalid arguments for list_directory: %w", err),
+		}
+	}
+	if args.Path == "" {
+		args.Path = "."
+	}
+
+	cleanPath, err := validatePath(args.Path)
+	if err != nil {
+		return ToolResult{ToolCallID: call.ID, Error: err}
+	}
+
+	info, err := os.Stat(cleanPath)
+	if err != nil {
+		return ToolResult{
+			ToolCallID: call.ID,
+			Error:      fmt.Errorf("list_directory: %w", err),
+		}
+	}
+	if !info.IsDir() {
+		return ToolResult{
+			ToolCallID: call.ID,
+			Error:      fmt.Errorf("list_directory: %s is not a directory", args.Path),
+		}
+	}
+
+	// Restrict to working directory.
+	wd, _ := os.Getwd()
+	if !strings.HasPrefix(cleanPath, wd+string(filepath.Separator)) && cleanPath != wd {
+		return ToolResult{
+			ToolCallID: call.ID,
+			Error:      fmt.Errorf("list_directory: path outside project directory"),
+		}
+	}
+
+	var listing strings.Builder
+	if args.Recursive {
+		maxDepth := 3
+		baseDepth := strings.Count(cleanPath, string(filepath.Separator))
+		_ = filepath.Walk(cleanPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil // skip errors
+			}
+			depth := strings.Count(path, string(filepath.Separator)) - baseDepth
+			if depth > maxDepth {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			rel, _ := filepath.Rel(cleanPath, path)
+			if rel == "." {
+				return nil
+			}
+			// Skip hidden directories like .git
+			if info.IsDir() && strings.HasPrefix(info.Name(), ".") && info.Name() != "." {
+				return filepath.SkipDir
+			}
+			indent := strings.Repeat("  ", depth)
+			name := info.Name()
+			if info.IsDir() {
+				name += "/"
+			}
+			fmt.Fprintf(&listing, "%s%s\n", indent, name)
+			return nil
+		})
+	} else {
+		entries, dirErr := os.ReadDir(cleanPath)
+		if dirErr != nil {
+			return ToolResult{
+				ToolCallID: call.ID,
+				Error:      fmt.Errorf("list_directory: %w", dirErr),
+			}
+		}
+		for _, entry := range entries {
+			name := entry.Name()
+			if entry.IsDir() {
+				name += "/"
+			}
+			listing.WriteString(name + "\n")
+		}
+	}
+
+	result := listing.String()
+	if result == "" {
+		result = "(empty directory)"
+	}
+	return ToolResult{ToolCallID: call.ID, Output: result}
+}
+
+func (e *Executor) executeGrepSearch(call provider.ToolCall) ToolResult {
+	var args struct {
+		Pattern string `json:"pattern"`
+		Path    string `json:"path"`
+		Include string `json:"include"`
+	}
+	if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
+		return ToolResult{
+			ToolCallID: call.ID,
+			Error:      fmt.Errorf("invalid arguments for grep_search: %w", err),
+		}
+	}
+	if args.Pattern == "" {
+		return ToolResult{
+			ToolCallID: call.ID,
+			Error:      fmt.Errorf("grep_search: pattern is required"),
+		}
+	}
+	if args.Path == "" {
+		args.Path = "."
+	}
+
+	cleanPath, err := validatePath(args.Path)
+	if err != nil {
+		return ToolResult{ToolCallID: call.ID, Error: err}
+	}
+
+	// Restrict to working directory.
+	wd, _ := os.Getwd()
+	if !strings.HasPrefix(cleanPath, wd+string(filepath.Separator)) && cleanPath != wd {
+		return ToolResult{
+			ToolCallID: call.ID,
+			Error:      fmt.Errorf("grep_search: path outside project directory"),
+		}
+	}
+
+	re, err := regexp.Compile(args.Pattern)
+	if err != nil {
+		return ToolResult{
+			ToolCallID: call.ID,
+			Error:      fmt.Errorf("grep_search: invalid regex: %w", err),
+		}
+	}
+
+	var results strings.Builder
+	matchCount := 0
+	maxMatches := 100
+
+	_ = filepath.Walk(cleanPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			// Skip hidden directories
+			if info != nil && info.IsDir() && strings.HasPrefix(info.Name(), ".") && info.Name() != "." {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if matchCount >= maxMatches {
+			return filepath.SkipAll
+		}
+
+		// Apply include filter.
+		if args.Include != "" {
+			matched, _ := filepath.Match(args.Include, info.Name())
+			if !matched {
+				return nil
+			}
+		}
+
+		// Skip binary/large files.
+		if info.Size() > 1024*1024 {
+			return nil
+		}
+
+		f, err := os.Open(path)
+		if err != nil {
+			return nil
+		}
+		defer f.Close()
+
+		rel, _ := filepath.Rel(wd, path)
+		scanner := bufio.NewScanner(f)
+		lineNum := 0
+		for scanner.Scan() {
+			lineNum++
+			line := scanner.Text()
+			if re.MatchString(line) {
+				matchCount++
+				if matchCount > maxMatches {
+					break
+				}
+				fmt.Fprintf(&results, "%s:%d: %s\n", rel, lineNum, line)
+			}
+		}
+		return nil
+	})
+
+	output := results.String()
+	if output == "" {
+		output = fmt.Sprintf("No matches found for %q", args.Pattern)
+	} else if matchCount >= maxMatches {
+		output += fmt.Sprintf("\n... (truncated at %d matches)", maxMatches)
+	}
+	return ToolResult{ToolCallID: call.ID, Output: output}
 }

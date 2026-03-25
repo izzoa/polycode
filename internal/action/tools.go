@@ -73,10 +73,60 @@ func AllTools() []provider.ToolDefinition {
 	}
 }
 
+// ListDirectoryTool returns a ToolDefinition for listing directory contents.
+func ListDirectoryTool() provider.ToolDefinition {
+	return provider.ToolDefinition{
+		Name:        "list_directory",
+		Description: "List the contents of a directory. Returns file and subdirectory names. Use this to explore project structure.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path": map[string]any{
+					"type":        "string",
+					"description": "The directory path to list. Use '.' for the current/project directory.",
+				},
+				"recursive": map[string]any{
+					"type":        "boolean",
+					"description": "If true, list contents recursively (up to 3 levels deep). Defaults to false.",
+				},
+			},
+			"required": []string{"path"},
+		},
+	}
+}
+
+// GrepSearchTool returns a ToolDefinition for searching file contents.
+func GrepSearchTool() provider.ToolDefinition {
+	return provider.ToolDefinition{
+		Name:        "grep_search",
+		Description: "Search for a text pattern across files in the project. Returns matching lines with file paths and line numbers.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"pattern": map[string]any{
+					"type":        "string",
+					"description": "The text or regex pattern to search for.",
+				},
+				"path": map[string]any{
+					"type":        "string",
+					"description": "Directory or file to search in. Defaults to '.' (project root).",
+				},
+				"include": map[string]any{
+					"type":        "string",
+					"description": "File glob pattern to include (e.g., '*.go', '*.py'). Optional.",
+				},
+			},
+			"required": []string{"pattern"},
+		},
+	}
+}
+
 // ReadOnlyTools returns tool definitions that are safe for concurrent fan-out
 // execution — read-only operations with no side effects.
 func ReadOnlyTools() []provider.ToolDefinition {
 	return []provider.ToolDefinition{
 		FileReadTool(),
+		ListDirectoryTool(),
+		GrepSearchTool(),
 	}
 }

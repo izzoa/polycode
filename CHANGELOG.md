@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-03-25
+
+### Added
+- **`list_directory` tool**: Providers can list directory contents during fan-out. Supports recursive listing (up to 3 levels, skipping hidden dirs like `.git`). Restricted to project directory.
+- **`grep_search` tool**: Providers can search for text/regex patterns across project files during fan-out. Returns matching lines with file paths and line numbers. Supports file type filtering (e.g., `include: "*.go"`), caps at 100 matches, skips binary/large files.
+
+### Fixed
+- **Command palette Enter with arguments**: Pressing Enter when `/mode thorough` is already typed now submits correctly instead of wiping the argument. Palette only intercepts Enter when no arguments have been typed yet.
+
 ## [1.15.0] - 2026-03-25
 
 ### Added
