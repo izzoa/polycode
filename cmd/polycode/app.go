@@ -172,13 +172,18 @@ func startTUI(cfg *config.Config) error {
 	memDir := filepath.Join(config.ConfigDir(), "memory")
 	memStore := memory.NewMemoryStore(memDir)
 
-	// Build system prompt from instruction hierarchy + repo memory
+	// Build system prompt from instruction hierarchy + repo memory + project context
 	instructions := memory.LoadInstructions(workDir)
 	memPrompt := memStore.FormatForPrompt()
 	systemContent := instructions
 	if memPrompt != "" {
 		systemContent += "\n\n" + memPrompt
 	}
+
+	// Inject project context and tool hints so providers don't waste rounds exploring.
+	projectCtx := action.BuildProjectContext(workDir)
+	toolHints := action.ToolUsageHints()
+	systemContent += "\n\n" + projectCtx + "\n" + toolHints
 
 	// Connect to MCP servers and discover tools
 	var mcpClient *mcp.MCPClient

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-03-26
+
+### Added
+- **Automatic project context in system prompt**: Providers now receive the project type (detected from go.mod, package.json, etc.) and top-level directory listing in the system prompt, eliminating the wasted first tool round where every provider does `list_directory .`.
+- **Tool usage hints in system prompt**: Providers see a clear list of available tools (file_read, list_directory, grep_search) with tips for efficient codebase exploration and an explicit warning not to attempt shell_exec.
+
+### Fixed
+- **Graceful handling of bad tool arguments**: `file_read` and `list_directory` now normalize empty/garbage paths (e.g., `":"`, `""`) to the project root instead of erroring. File-not-found errors now show nearby files as hints and suggest alternative tools. `grep_search` auto-escapes invalid regex to literal string search instead of failing.
+
 ## [1.16.0] - 2026-03-25
 
 ### Added

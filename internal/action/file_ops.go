@@ -50,8 +50,31 @@ func (e *Executor) readFile(path string) ToolResult {
 
 	info, err := os.Stat(cleanPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			// Suggest alternatives: list the parent directory if it exists.
+			dir := filepath.Dir(cleanPath)
+			hint := ""
+			if entries, dirErr := os.ReadDir(dir); dirErr == nil {
+				var names []string
+				for _, e := range entries {
+					n := e.Name()
+					if e.IsDir() {
+						n += "/"
+					}
+					names = append(names, n)
+					if len(names) >= 10 {
+						names = append(names, "...")
+						break
+					}
+				}
+				hint = fmt.Sprintf("\nFiles in %s: %s", filepath.Base(dir), strings.Join(names, ", "))
+			}
+			return ToolResult{
+				Error: fmt.Errorf("file_read: %q not found.%s\nHint: use list_directory to explore, or grep_search to find files by content.", path, hint),
+			}
+		}
 		return ToolResult{
-			Error: fmt.Errorf("failed to read file %s: %w", path, err),
+			Error: fmt.Errorf("file_read: cannot read %q: %w", path, err),
 		}
 	}
 
@@ -221,7 +244,9 @@ func (e *Executor) executeListDirectory(call provider.ToolCall) ToolResult {
 			Error:      fmt.Errorf("invalid arguments for list_directory: %w", err),
 		}
 	}
-	if args.Path == "" {
+	// Normalize empty or garbage paths to project root.
+	args.Path = strings.TrimSpace(args.Path)
+	if args.Path == "" || args.Path == ":" {
 		args.Path = "."
 	}
 
@@ -232,9 +257,15 @@ func (e *Executor) executeListDirectory(call provider.ToolCall) ToolResult {
 
 	info, err := os.Stat(cleanPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return ToolResult{
+				ToolCallID: call.ID,
+				Error:      fmt.Errorf("list_directory: %q not found. Use '.' for the project root.", args.Path),
+			}
+		}
 		return ToolResult{
 			ToolCallID: call.ID,
-			Error:      fmt.Errorf("list_directory: %w", err),
+			Error:      fmt.Errorf("list_directory: cannot access %q: %w", args.Path, err),
 		}
 	}
 	if !info.IsDir() {
@@ -346,10 +377,16 @@ func (e *Executor) executeGrepSearch(call provider.ToolCall) ToolResult {
 
 	re, err := regexp.Compile(args.Pattern)
 	if err != nil {
-		return ToolResult{
-			ToolCallID: call.ID,
-			Error:      fmt.Errorf("grep_search: invalid regex: %w", err),
+		// Try as literal string if regex fails.
+		escaped := regexp.QuoteMeta(args.Pattern)
+		re2, err2 := regexp.Compile(escaped)
+		if err2 != nil {
+			return ToolResult{
+				ToolCallID: call.ID,
+				Error:      fmt.Errorf("grep_search: invalid pattern %q. Hint: use a plain text string or valid Go regex.", args.Pattern),
+			}
 		}
+		re = re2
 	}
 
 	var results strings.Builder

@@ -3,6 +3,7 @@ package action
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/izzoa/polycode/internal/provider"
@@ -87,11 +88,10 @@ func (e *Executor) executeFileRead(call provider.ToolCall) ToolResult {
 			Error:      fmt.Errorf("invalid arguments for file_read: %w", err),
 		}
 	}
-	if args.Path == "" {
-		return ToolResult{
-			ToolCallID: call.ID,
-			Error:      fmt.Errorf("file_read: path is required"),
-		}
+	// Normalize empty or garbage paths to the project root.
+	args.Path = strings.TrimSpace(args.Path)
+	if args.Path == "" || args.Path == ":" || args.Path == "." {
+		args.Path = "."
 	}
 	result := e.readFile(args.Path)
 	result.ToolCallID = call.ID
