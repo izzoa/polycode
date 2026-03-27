@@ -99,6 +99,72 @@ func TestValidateOpenAICompatWithBaseURL(t *testing.T) {
 	}
 }
 
+// --- MCP validation tests ---
+
+func validBaseConfig() Config {
+	return Config{
+		Providers: []ProviderConfig{
+			{Name: "p", Type: ProviderTypeOpenAI, Auth: AuthMethodAPIKey, Model: "m", Primary: true},
+		},
+	}
+}
+
+func TestValidateMCPEmptyName(t *testing.T) {
+	cfg := validBaseConfig()
+	cfg.MCP.Servers = []MCPServerConfig{{Name: "", Command: "npx"}}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for empty MCP server name")
+	}
+}
+
+func TestValidateMCPDuplicateNames(t *testing.T) {
+	cfg := validBaseConfig()
+	cfg.MCP.Servers = []MCPServerConfig{
+		{Name: "fs", Command: "npx"},
+		{Name: "fs", Command: "node"},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for duplicate MCP server names")
+	}
+}
+
+func TestValidateMCPNoCommandOrURL(t *testing.T) {
+	cfg := validBaseConfig()
+	cfg.MCP.Servers = []MCPServerConfig{{Name: "broken"}}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for MCP server with no command or URL")
+	}
+}
+
+func TestValidateMCPNegativeTimeout(t *testing.T) {
+	cfg := validBaseConfig()
+	cfg.MCP.Servers = []MCPServerConfig{{Name: "fs", Command: "npx", Timeout: -1}}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for negative MCP timeout")
+	}
+}
+
+func TestValidateMCPValidConfig(t *testing.T) {
+	cfg := validBaseConfig()
+	cfg.MCP.Servers = []MCPServerConfig{
+		{Name: "fs", Command: "npx", Args: []string{"-y", "server-fs"}},
+		{Name: "remote", URL: "http://localhost:3000/mcp"},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected valid MCP config, got: %v", err)
+	}
+}
+
+func TestValidateMCPProviderNameCollision(t *testing.T) {
+	// Same name for provider and MCP server should pass (warning only, not error).
+	cfg := validBaseConfig()
+	cfg.Providers[0].Name = "github"
+	cfg.MCP.Servers = []MCPServerConfig{{Name: "github", Command: "npx"}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected validation to pass with warning, got error: %v", err)
+	}
+}
+
 func TestPrimaryProvider(t *testing.T) {
 	cfg := Config{
 		Providers: []ProviderConfig{

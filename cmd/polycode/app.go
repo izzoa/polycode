@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"maps"
@@ -29,6 +30,25 @@ import (
 	"github.com/izzoa/polycode/internal/tokens"
 	"github.com/izzoa/polycode/internal/tui"
 )
+
+// mcpHolder provides thread-safe access to the shared MCPClient pointer.
+// Reads use RLock (concurrent), writes use Lock (exclusive).
+type mcpHolder struct {
+	mu     sync.RWMutex
+	client *mcp.MCPClient
+}
+
+func (h *mcpHolder) get() *mcp.MCPClient {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.client
+}
+
+func (h *mcpHolder) set(c *mcp.MCPClient) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.client = c
+}
 
 // conversationState maintains the full multi-turn dialogue context.
 type conversationState struct {
@@ -186,15 +206,19 @@ func startTUI(cfg *config.Config) error {
 	systemContent += "\n\n" + projectCtx + "\n" + toolHints
 
 	// Connect to MCP servers and discover tools
-	var mcpClient *mcp.MCPClient
+	mcpH := &mcpHolder{}
 	if len(cfg.MCP.Servers) > 0 {
-		mcpClient = mcp.NewMCPClient(cfg.MCP.Servers)
+		newMCP := mcp.NewMCPClient(cfg.MCP.Servers, cfg.MCP.Debug)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		if err := mcpClient.Connect(ctx); err != nil {
-			log.Printf("Warning: MCP connection failed: %v", err)
-			mcpClient = nil
+		if err := newMCP.Connect(ctx); err != nil {
+			log.Printf("Warning: MCP: %v", err)
 		}
 		cancel()
+		if len(newMCP.Tools()) == 0 {
+			newMCP.Close()
+		} else {
+			mcpH.set(newMCP)
+		}
 	}
 
 	// Load installed skills
@@ -322,6 +346,34 @@ func startTUI(cfg *config.Config) error {
 		hookMgr = hooks.NewHookManager(newCfg.Hooks)
 		if newPolicyMgr, err := permissions.LoadPolicies(workDir); err == nil {
 			policyMgr = newPolicyMgr
+		}
+
+		// Reconfigure MCP client if servers changed
+		if client := mcpH.get(); client != nil {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				if err := client.Reconfigure(ctx, newCfg.MCP.Servers); err != nil {
+					log.Printf("Warning: MCP reconfigure: %v", err)
+				}
+				sendMCPStatus(program, client)
+			}()
+		} else if len(newCfg.MCP.Servers) > 0 {
+			go func() {
+				newMCP := mcp.NewMCPClient(newCfg.MCP.Servers, newCfg.MCP.Debug)
+				wireMCPNotifications(program, newMCP)
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				if err := newMCP.Connect(ctx); err != nil {
+					log.Printf("Warning: MCP: %v", err)
+				}
+				cancel()
+				if len(newMCP.Tools()) > 0 || len(newMCP.Resources()) > 0 {
+					mcpH.set(newMCP)
+				} else {
+					newMCP.Close()
+				}
+				sendMCPStatus(program, mcpH.get())
+			}()
 		}
 	})
 
@@ -492,6 +544,9 @@ func startTUI(cfg *config.Config) error {
 			}
 
 			program.Send(tui.QueryDoneMsg{})
+			if mc := mcpH.get(); mc != nil {
+				program.Send(tui.MCPCallCountMsg{Count: mc.CallCount()})
+			}
 		}()
 	})
 
@@ -533,6 +588,211 @@ func startTUI(cfg *config.Config) error {
 				program.Send(tui.ConsensusChunkMsg{Delta: "\nSkill removed.\n", Done: true})
 			default:
 				program.Send(tui.ConsensusChunkMsg{Delta: "\nUsage: /skill [list|install <path>|remove <name>]\n", Done: true})
+			}
+		}()
+	})
+
+	// Wire /mcp handler
+	model.SetMCPHandler(func(subcommand, args string) {
+		go func() {
+			mc := mcpH.get()
+			switch subcommand {
+			case "", "list":
+				if mc == nil {
+					program.Send(tui.ConsensusChunkMsg{Delta: "\nNo MCP servers configured.\n", Done: true})
+					return
+				}
+				statuses := mc.Status()
+				tools := mc.Tools()
+				var sb strings.Builder
+				connected := 0
+				for _, s := range statuses {
+					if s.Connected {
+						connected++
+					}
+				}
+				sb.WriteString(fmt.Sprintf("\nMCP Servers (%d connected)\n\n", connected))
+				for _, s := range statuses {
+					status := "disconnected"
+					if s.Connected {
+						status = "connected"
+					} else if s.Error != nil {
+						status = "failed"
+					}
+					sb.WriteString(fmt.Sprintf("  %s (%s), %d tools\n", s.Name, status, s.ToolCount))
+					// List tools for this server
+					for _, t := range tools {
+						if t.ServerName == s.Name {
+							ro := ""
+							if t.ReadOnly {
+								ro = " [read-only]"
+							}
+							sb.WriteString(fmt.Sprintf("    • mcp_%s_%s — %s%s\n", s.Name, t.Name, t.Description, ro))
+						}
+					}
+				}
+				program.Send(tui.ConsensusChunkMsg{Delta: sb.String(), Done: true})
+
+			case "status":
+				if mc == nil {
+					program.Send(tui.ConsensusChunkMsg{Delta: "\nNo MCP servers configured.\n", Done: true})
+					return
+				}
+				statuses := mc.Status()
+				var sb strings.Builder
+				sb.WriteString("\nMCP Server Status\n\n")
+				for _, s := range statuses {
+					status := "disconnected"
+					if s.Connected {
+						status = "✓ connected"
+					} else if s.Error != nil {
+						status = "✗ " + s.Error.Error()
+					}
+					sb.WriteString(fmt.Sprintf("  %-20s %s (%d tools)\n", s.Name, status, s.ToolCount))
+				}
+				program.Send(tui.ConsensusChunkMsg{Delta: sb.String(), Done: true})
+
+			case "reconnect":
+				if mc == nil {
+					program.Send(tui.ConsensusChunkMsg{Delta: "\nNo MCP client.\n", Done: true})
+					return
+				}
+				serverName := strings.TrimSpace(args)
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				if serverName != "" {
+					err := mc.Reconnect(ctx, serverName)
+					if err != nil {
+						program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nReconnect %s failed: %v\n", serverName, err), Done: true})
+					} else {
+						program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nReconnected to %s.\n", serverName), Done: true})
+					}
+				} else {
+					// Reconnect all — report per-server results
+					var sb strings.Builder
+					sb.WriteString("\nReconnecting all MCP servers...\n")
+					for _, s := range mc.Status() {
+						err := mc.Reconnect(ctx, s.Name)
+						if err != nil {
+							sb.WriteString(fmt.Sprintf("  ✗ %s: %v\n", s.Name, err))
+						} else {
+							sb.WriteString(fmt.Sprintf("  ✓ %s\n", s.Name))
+						}
+					}
+					program.Send(tui.ConsensusChunkMsg{Delta: sb.String(), Done: true})
+				}
+				sendMCPStatus(program, mc)
+
+			case "tools":
+				if mc == nil {
+					program.Send(tui.ConsensusChunkMsg{Delta: "\nNo MCP servers configured.\n", Done: true})
+					return
+				}
+				tools := mc.Tools()
+				serverFilter := strings.TrimSpace(args)
+				var sb strings.Builder
+				sb.WriteString("\nMCP Tools\n\n")
+				for _, t := range tools {
+					if serverFilter != "" && t.ServerName != serverFilter {
+						continue
+					}
+					ro := ""
+					if t.ReadOnly {
+						ro = " [read-only]"
+					}
+					sb.WriteString(fmt.Sprintf("  mcp_%s_%s — %s%s\n", t.ServerName, t.Name, t.Description, ro))
+				}
+				program.Send(tui.ConsensusChunkMsg{Delta: sb.String(), Done: true})
+
+			case "resources":
+				if mc == nil {
+					program.Send(tui.ConsensusChunkMsg{Delta: "\nNo MCP servers configured.\n", Done: true})
+					return
+				}
+				resources := mc.Resources()
+				serverFilter := strings.TrimSpace(args)
+				var sb strings.Builder
+				sb.WriteString("\nMCP Resources\n\n")
+				if len(resources) == 0 {
+					sb.WriteString("  No resources available.\n")
+				}
+				for _, r := range resources {
+					if serverFilter != "" && r.ServerName != serverFilter {
+						continue
+					}
+					sb.WriteString(fmt.Sprintf("  [%s] %s — %s", r.ServerName, r.Name, r.URI))
+					if r.Description != "" {
+						sb.WriteString(fmt.Sprintf("  (%s)", r.Description))
+					}
+					sb.WriteString("\n")
+				}
+				program.Send(tui.ConsensusChunkMsg{Delta: sb.String(), Done: true})
+
+			case "prompts":
+				if mc == nil {
+					program.Send(tui.ConsensusChunkMsg{Delta: "\nNo MCP servers configured.\n", Done: true})
+					return
+				}
+				prompts := mc.Prompts()
+				serverFilter := strings.TrimSpace(args)
+				var sb strings.Builder
+				sb.WriteString("\nMCP Prompts\n\n")
+				if len(prompts) == 0 {
+					sb.WriteString("  No prompts available.\n")
+				}
+				for _, p := range prompts {
+					if serverFilter != "" && p.ServerName != serverFilter {
+						continue
+					}
+					sb.WriteString(fmt.Sprintf("  [%s] %s — %s\n", p.ServerName, p.Name, p.Description))
+					for _, a := range p.Arguments {
+						req := ""
+						if a.Required {
+							req = " (required)"
+						}
+						sb.WriteString(fmt.Sprintf("    • %s%s — %s\n", a.Name, req, a.Description))
+					}
+				}
+				program.Send(tui.ConsensusChunkMsg{Delta: sb.String(), Done: true})
+
+			case "remove":
+				serverName := strings.TrimSpace(args)
+				if serverName == "" {
+					program.Send(tui.ConsensusChunkMsg{Delta: "\nUsage: /mcp remove <name>\n", Done: true})
+					return
+				}
+				found := false
+				for i, s := range cfg.MCP.Servers {
+					if s.Name == serverName {
+						cfg.MCP.Servers = append(cfg.MCP.Servers[:i], cfg.MCP.Servers[i+1:]...)
+						found = true
+						break
+					}
+				}
+				if !found {
+					program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nMCP server '%s' not found.\n", serverName), Done: true})
+					return
+				}
+				if err := cfg.Save(); err != nil {
+					program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nFailed to save config: %v\n", err), Done: true})
+					return
+				}
+				// Apply at runtime — reconfigure with new server list
+				if mc != nil {
+					rctx, rcancel := context.WithTimeout(context.Background(), 15*time.Second)
+					if rErr := mc.Reconfigure(rctx, cfg.MCP.Servers); rErr != nil {
+						log.Printf("Warning: MCP reconfigure after remove: %v", rErr)
+					}
+					rcancel()
+					sendMCPStatus(program, mc)
+				}
+				program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nRemoved and disconnected MCP server '%s'.\n", serverName), Done: true})
+
+			default:
+				program.Send(tui.ConsensusChunkMsg{
+					Delta: "\nUsage: /mcp [list|status|reconnect [name]|tools [server]|resources [server]|prompts [server]|add|remove <name>]\n",
+					Done:  true,
+				})
 			}
 		}()
 	})
@@ -689,8 +949,8 @@ func startTUI(cfg *config.Config) error {
 
 			// Merge built-in tools with MCP-discovered and skill-provided tools
 			tools := action.AllTools()
-			if mcpClient != nil {
-				tools = append(tools, mcpClient.ToToolDefinitions()...)
+			if mc := mcpH.get(); mc != nil {
+				tools = append(tools, mc.ToToolDefinitions()...)
 			}
 			tools = append(tools, skillReg.ToToolDefinitions()...)
 			// Set reasoning effort based on mode
@@ -776,9 +1036,11 @@ func startTUI(cfg *config.Config) error {
 			}
 
 			// Fan-out only gets read-only built-in tools (file_read).
-			// MCP/skill tools are excluded — they may have side effects and
-			// execute without confirmation during concurrent fan-out.
+			// Include built-in read-only tools plus read-only MCP tools in fan-out.
 			fanOutTools := action.ReadOnlyTools()
+			if mc := mcpH.get(); mc != nil {
+				fanOutTools = append(fanOutTools, mc.ReadOnlyToolDefinitions()...)
+			}
 
 			// Build allowed tool name set for fan-out safety filtering.
 			allowedFanOutTools := make(map[string]bool, len(fanOutTools))
@@ -787,6 +1049,17 @@ func startTUI(cfg *config.Config) error {
 			}
 
 			fanOutExecutor := action.NewExecutor(nil, 30*time.Second)
+			// Register MCP handler for read-only MCP tools in fan-out.
+			if mc := mcpH.get(); mc != nil {
+				fanOutExecutor.SetExternalHandler(func(call provider.ToolCall) (string, error) {
+					if len(call.Name) > 4 && call.Name[:4] == "mcp_" {
+						if serverName, toolName, ok := mc.ResolveToolCall(call.Name); ok {
+							return mc.CallTool(ctx, serverName, toolName, []byte(call.Arguments))
+						}
+					}
+					return "", fmt.Errorf("unknown tool: %s", call.Name)
+				})
+			}
 			queryPipeline.SetFanOutTools(
 				fanOutTools,
 				func(call provider.ToolCall) (string, error) {
@@ -866,6 +1139,9 @@ func startTUI(cfg *config.Config) error {
 				hookMgr.Run(hooks.OnError, hooks.HookContext{Prompt: prompt, Error: err.Error()})
 				program.Send(tui.ConsensusChunkMsg{Error: err, Done: true})
 				program.Send(tui.QueryDoneMsg{})
+			if mc := mcpH.get(); mc != nil {
+				program.Send(tui.MCPCallCountMsg{Count: mc.CallCount()})
+			}
 				return
 			}
 
@@ -1093,15 +1369,20 @@ func startTUI(cfg *config.Config) error {
 
 				// Register external tool handlers for MCP and skill tools
 				executor.SetExternalHandler(func(call provider.ToolCall) (string, error) {
-					// MCP tool names are "mcp_{server}_{tool}"
-					if mcpClient != nil && len(call.Name) > 4 && call.Name[:4] == "mcp_" {
-						rest := call.Name[4:]
-						for i, ch := range rest {
-							if ch == '_' {
-								serverName := rest[:i]
-								toolName := rest[i+1:]
-								return mcpClient.CallTool(ctx, serverName, toolName, []byte(call.Arguments))
+					// MCP tool names are "mcp_{server}_{tool}" — resolved via lookup map
+					if mc := mcpH.get(); mc != nil && len(call.Name) > 4 && call.Name[:4] == "mcp_" {
+						if serverName, toolName, ok := mc.ResolveToolCall(call.Name); ok {
+							policy := policyMgr.Check(call.Name)
+							if policy == permissions.PolicyDeny {
+								return "", fmt.Errorf("MCP tool %q denied by policy", call.Name)
 							}
+							if policy != permissions.PolicyAllow && !mc.IsServerReadOnly(serverName) {
+								desc := fmt.Sprintf("MCP tool %s → %s.%s", call.Name, serverName, toolName)
+								if !confirmFunc(call.Name, desc) {
+									return "", fmt.Errorf("MCP tool %q denied by user", call.Name)
+								}
+							}
+							return mc.CallTool(ctx, serverName, toolName, []byte(call.Arguments))
 						}
 					}
 					// Skill tool names are "skill_{name}_{tool}"
@@ -1350,6 +1631,44 @@ func startTUI(cfg *config.Config) error {
 			}()
 
 			program.Send(tui.QueryDoneMsg{})
+			if mc := mcpH.get(); mc != nil {
+				program.Send(tui.MCPCallCountMsg{Count: mc.CallCount()})
+			}
+		}()
+	})
+
+	// Set up MCP test handler — uses standalone TestConnection with staged config
+	model.SetTestMCPHandler(func(mcpCfg config.MCPServerConfig) {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			toolCount, err := mcp.TestConnection(ctx, mcpCfg)
+			if err != nil {
+				program.Send(tui.MCPTestResultMsg{
+					ServerName: mcpCfg.Name,
+					Success:    false,
+					Error:      err.Error(),
+				})
+				return
+			}
+			program.Send(tui.MCPTestResultMsg{
+				ServerName: mcpCfg.Name,
+				Success:    true,
+				ToolCount:  toolCount,
+			})
+		}()
+	})
+
+	model.SetReconnectMCPHandler(func(serverName string) {
+		go func() {
+			mc := mcpH.get()
+			if mc == nil {
+				return
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			_ = mc.Reconnect(ctx, serverName)
+			sendMCPStatus(program, mc)
 		}()
 	})
 
@@ -1357,20 +1676,73 @@ func startTUI(cfg *config.Config) error {
 	// so the model copy Bubble Tea receives has all callbacks set.
 	program = tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
+	// Send initial MCP status to the TUI and wire notification handler.
+	if mc := mcpH.get(); mc != nil {
+		go sendMCPStatus(program, mc)
+		wireMCPNotifications(program, mc)
+	}
+
 	// Run the TUI
 	if _, err := program.Run(); err != nil {
-		if mcpClient != nil {
-			mcpClient.Close()
+		if mc := mcpH.get(); mc != nil {
+			mc.Close()
 		}
 		return fmt.Errorf("TUI error: %w", err)
 	}
 
 	// Clean up MCP connections
-	if mcpClient != nil {
-		mcpClient.Close()
+	if mc := mcpH.get(); mc != nil {
+		mc.Close()
 	}
 
 	return nil
+}
+
+// sendMCPStatus builds and sends an MCPStatusMsg to the TUI from the current
+// MCPClient state. Safe to call from goroutines.
+func sendMCPStatus(program *tea.Program, client *mcp.MCPClient) {
+	if client == nil {
+		return
+	}
+	statuses := client.Status()
+	var servers []tui.MCPServerStatus
+	for _, s := range statuses {
+		status := "disconnected"
+		errMsg := ""
+		if s.Connected {
+			status = "connected"
+		} else if s.Error != nil {
+			status = "failed"
+			errMsg = s.Error.Error()
+		}
+		servers = append(servers, tui.MCPServerStatus{
+			Name:      s.Name,
+			Status:    status,
+			ToolCount: s.ToolCount,
+			Error:     errMsg,
+		})
+	}
+	program.Send(tui.MCPStatusMsg{Servers: servers})
+}
+
+// wireMCPNotifications attaches the tool-refresh notification handler to an
+// MCPClient. Must be called after `program` is available.
+func wireMCPNotifications(program *tea.Program, client *mcp.MCPClient) {
+	client.SetNotificationHandler(func(serverName, method string, _ json.RawMessage) {
+		if method == "notifications/tools/list_changed" {
+			toolCount := 0
+			for _, t := range client.Tools() {
+				if t.ServerName == serverName {
+					toolCount++
+				}
+			}
+			program.Send(tui.MCPToolsChangedMsg{
+				ServerName: serverName,
+				ToolCount:  toolCount,
+			})
+			sendMCPStatus(program, client)
+		}
+	})
 }
 
 // toSessionMessages converts provider messages to the serializable session

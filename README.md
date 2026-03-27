@@ -178,7 +178,7 @@ Models without reasoning support silently ignore the parameter.
 
 - **Hooks** — Run shell commands at lifecycle events: `pre_query`, `post_query`, `post_tool`, `on_error`
 - **Permissions** — Per-tool approval policies (`allow`, `ask`, `deny`) scoped by repo or user in `permissions.yaml`
-- **MCP** — Connect to Model Context Protocol servers for external tool discovery and invocation
+- **MCP** — Connect to [Model Context Protocol](https://modelcontextprotocol.io) servers for external tools, resources, and prompts. Full TUI wizard with curated server registry, auto-reconnect, per-call timeouts, debug logging, and runtime reconfiguration. Manage via `/mcp` command or settings view.
 - **Repo memory** — Persistent notes in `~/.config/polycode/memory/` injected into the system prompt
 - **Instructions** — Instruction hierarchy: `.polycode/instructions.md` > `~/.config/polycode/instructions.md` > default
 
@@ -272,7 +272,8 @@ Type `/` to open the command palette, or type commands directly:
 | `/name <name>` | Name the current session |
 | `/memory` | View repo memory |
 | `/skill [list\|install\|remove]` | Manage installed skills/plugins |
-| `/settings` | Open provider settings |
+| `/mcp [list\|status\|reconnect\|tools\|resources\|prompts\|add\|remove]` | Manage MCP servers |
+| `/settings` | Open provider settings (+ MCP servers with Tab) |
 | `/yolo` | Toggle auto-approve for all tool actions |
 | `/exit` | Quit polycode |
 
@@ -326,6 +327,12 @@ metadata:
 tui:
   theme: dark
   show_individual: true      # show individual provider panels by default
+
+mcp:
+  servers:
+    - name: filesystem
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "/path"]
 ```
 
 ### Provider options
@@ -347,6 +354,40 @@ tui:
 | `timeout` | `60s` | Maximum time to wait for each provider's response |
 | `min_responses` | `2` | Minimum successful responses before synthesis proceeds. Set to `1` if you only have one provider. |
 | `verify_command` | auto-detected | Test command to run after file writes. Auto-detects `go test`, `npm test`, `cargo test`, `pytest`, `make test`. |
+
+### MCP server settings
+
+Add MCP servers under the `mcp` key in config.yaml, or use the TUI wizard (`/mcp add` or `a` in the MCP settings section):
+
+```yaml
+mcp:
+  debug: false              # log JSON-RPC traffic to ~/.config/polycode/mcp-debug.log
+  servers:
+    - name: filesystem
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/project"]
+      read_only: true       # skip confirmation for this server's tools
+
+    - name: github
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-github"]
+      env:
+        GITHUB_TOKEN: $KEYRING:mcp_github_GITHUB_TOKEN
+
+    - name: remote-server
+      url: http://localhost:3000/mcp    # HTTP/SSE transport
+      timeout: 60                        # per-call timeout in seconds (default 30)
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Unique server identifier |
+| `command` | Conditional | Command to spawn (stdio transport). Required if `url` not set. |
+| `args` | No | Arguments for the command |
+| `url` | Conditional | Server URL (HTTP/SSE transport). Required if `command` not set. |
+| `env` | No | Environment variables. Use `$KEYRING:key_name` for secrets. |
+| `read_only` | No | Skip confirmation for this server's tools (default `false`) |
+| `timeout` | No | Per-call timeout in seconds (default `30`) |
 
 ---
 

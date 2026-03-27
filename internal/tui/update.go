@@ -193,6 +193,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case MCPStatusMsg:
+		m.mcpServers = msg.Servers
+		return m, nil
+
+	case MCPCallCountMsg:
+		m.mcpCallCount = msg.Count
+		return m, nil
+
+	case MCPToolsChangedMsg:
+		// Update tool count for the changed server in mcpServers.
+		for i, s := range m.mcpServers {
+			if s.Name == msg.ServerName {
+				m.mcpServers[i].ToolCount = msg.ToolCount
+				break
+			}
+		}
+		return m, nil
+
+	case MCPTestResultMsg:
+		m.mcpTestingServer = ""
+		m.mcpWizardTesting = false
+		if msg.Success {
+			result := m.styles.StatusHealthy.Render(
+				fmt.Sprintf("✓ Connected (%d tools)", msg.ToolCount))
+			m.settingsMsg = result
+			m.mcpWizardTestResult = result
+		} else {
+			result := m.styles.StatusUnhealthy.Render("✗ Failed: " + msg.Error)
+			m.settingsMsg = result
+			m.mcpWizardTestResult = result
+		}
+		return m, nil
+
 	case PlanDoneMsg:
 		m.planRunning = false
 		if msg.Error != nil {
@@ -298,6 +331,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSettings(msg)
 		case viewAddProvider, viewEditProvider:
 			return m.updateWizard(msg)
+		case viewAddMCP, viewEditMCP:
+			return m.updateMCPWizard(msg)
 		default:
 			return m.updateChat(msg)
 		}
@@ -835,6 +870,28 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 				if prompt == "/exit" || prompt == "/quit" {
 					return m, tea.Quit
 				}
+				if strings.HasPrefix(prompt, "/mcp") {
+					m.textarea.Reset()
+					rest := strings.TrimSpace(strings.TrimPrefix(prompt, "/mcp"))
+					// Handle /mcp add shortcut
+					if rest == "add" {
+						m.initMCPWizardForAdd()
+						return m, nil
+					}
+					if m.onMCP != nil {
+						parts := strings.SplitN(rest, " ", 2)
+						sub := ""
+						args := ""
+						if len(parts) > 0 {
+							sub = parts[0]
+						}
+						if len(parts) > 1 {
+							args = parts[1]
+						}
+						m.onMCP(sub, args)
+					}
+					return m, nil
+				}
 				if prompt == "/yolo" {
 					m.textarea.Reset()
 					m.yoloMode = !m.yoloMode
@@ -896,10 +953,25 @@ func (m Model) updateSettings(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.mcpConfirmDelete {
+		switch key {
+		case "y":
+			m.mcpConfirmDelete = false
+			return m.deleteSelectedMCPServer()
+		case "n", "esc":
+			m.mcpConfirmDelete = false
+			return m, nil
+		case "ctrl+c":
+			return m, tea.Quit
+		}
+		return m, nil
+	}
 
 	providerCount := 0
+	mcpCount := 0
 	if m.cfg != nil {
 		providerCount = len(m.cfg.Providers)
+		mcpCount = len(m.cfg.MCP.Servers)
 	}
 
 	switch key {
@@ -908,47 +980,93 @@ func (m Model) updateSettings(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "esc":
 		m.mode = viewChat
 		m.settingsMsg = ""
+		m.mcpSettingsFocused = false
 		m.textarea.Focus()
 		return m, nil
-	case "j", "down":
-		if m.settingsCursor < providerCount-1 {
-			m.settingsCursor++
-		}
+	case "tab":
+		// Toggle focus between provider and MCP sections
+		m.mcpSettingsFocused = !m.mcpSettingsFocused
 		m.settingsMsg = ""
+		return m, nil
+	case "j", "down":
+		m.settingsMsg = ""
+		if m.mcpSettingsFocused {
+			if m.mcpSettingsCursor < mcpCount-1 {
+				m.mcpSettingsCursor++
+			}
+		} else {
+			if m.settingsCursor < providerCount-1 {
+				m.settingsCursor++
+			}
+		}
 		return m, nil
 	case "k", "up":
-		if m.settingsCursor > 0 {
-			m.settingsCursor--
-		}
 		m.settingsMsg = ""
+		if m.mcpSettingsFocused {
+			if m.mcpSettingsCursor > 0 {
+				m.mcpSettingsCursor--
+			}
+		} else {
+			if m.settingsCursor > 0 {
+				m.settingsCursor--
+			}
+		}
 		return m, nil
 	case "a":
-		m.initWizardForAdd()
+		if m.mcpSettingsFocused {
+			m.initMCPWizardForAdd()
+		} else {
+			m.initWizardForAdd()
+		}
 		return m, nil
 	case "e":
-		if providerCount > 0 {
-			m.initWizardForEdit(m.settingsCursor)
+		if m.mcpSettingsFocused {
+			if mcpCount > 0 {
+				m.initMCPWizardForEdit(m.mcpSettingsCursor)
+			}
+		} else {
+			if providerCount > 0 {
+				m.initWizardForEdit(m.settingsCursor)
+			}
 		}
 		return m, nil
 	case "d":
-		if providerCount > 0 {
-			if m.cfg.Providers[m.settingsCursor].Primary {
-				m.settingsMsg = m.styles.StatusUnhealthy.Render(
-					"Cannot remove the primary provider. Change primary first.")
-				return m, nil
+		if m.mcpSettingsFocused {
+			if mcpCount > 0 {
+				m.mcpConfirmDelete = true
 			}
-			m.confirmDelete = true
+		} else {
+			if providerCount > 0 {
+				if m.cfg.Providers[m.settingsCursor].Primary {
+					m.settingsMsg = m.styles.StatusUnhealthy.Render(
+						"Cannot remove the primary provider. Change primary first.")
+					return m, nil
+				}
+				m.confirmDelete = true
+			}
 		}
 		return m, nil
 	case "t":
-		if providerCount > 0 {
-			name := m.cfg.Providers[m.settingsCursor].Name
-			m.testingProvider = name
-			m.settingsMsg = ""
-			if m.onTestProvider != nil {
-				m.onTestProvider(name)
+		if m.mcpSettingsFocused {
+			if mcpCount > 0 {
+				cfg := m.cfg.MCP.Servers[m.mcpSettingsCursor]
+				m.mcpTestingServer = cfg.Name
+				m.settingsMsg = ""
+				if m.onTestMCP != nil {
+					m.onTestMCP(cfg)
+				}
+				return m, m.spinner.Tick
 			}
-			return m, m.spinner.Tick
+		} else {
+			if providerCount > 0 {
+				name := m.cfg.Providers[m.settingsCursor].Name
+				m.testingProvider = name
+				m.settingsMsg = ""
+				if m.onTestProvider != nil {
+					m.onTestProvider(name)
+				}
+				return m, m.spinner.Tick
+			}
 		}
 		return m, nil
 	}

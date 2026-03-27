@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-03-27
+
+### Added
+- **MCP (Model Context Protocol) integration**: Connect external MCP servers to extend Polycode with additional tools, resources, and prompts. Supports stdio (subprocess) and HTTP/SSE transports.
+- **MCP server management**: Full TUI wizard for adding/editing/deleting MCP servers with curated registry of popular servers (filesystem, GitHub, PostgreSQL, Brave Search, SQLite, Slack, Puppeteer, Memory). Connection testing with staged config validation.
+- **`/mcp` slash command**: Subcommands for `list`, `status`, `reconnect`, `tools`, `resources`, `prompts`, `add`, `remove`. Manage MCP servers without leaving the TUI.
+- **MCP status in settings**: Two-section settings view with Tab switching between Providers and MCP Servers. Color-coded connection status (connected/failed/disconnected) with tool counts.
+- **MCP status bar indicator**: Shows `MCP: 2/2 ✓ 5 calls` in the tab bar with connection status and tool call count.
+- **MCP confirmation gate**: MCP tool calls route through the permission policy system. `PolicyDeny` always enforced. Read-only servers skip interactive prompt but respect deny policies.
+- **MCP environment variables**: `env` map on server config with `$KEYRING:` reference support for secure secret storage.
+- **MCP auto-reconnect**: Dead server connections detected via background exit watcher. Automatic reconnection with tool/resource/prompt re-discovery on next tool call.
+- **MCP per-call timeout**: Configurable per-server timeout (default 30s) with context-aware cancellation.
+- **MCP per-server failure isolation**: Individual server failures don't abort other connections. Partial success on startup.
+- **MCP graceful shutdown**: Protocol shutdown notification, stdin EOF, 3-second wait, then force kill.
+- **MCP multiplexed reader**: Single background goroutine per stdio connection routes responses by request ID and dispatches notifications. Handles `notifications/tools/list_changed` for dynamic tool refresh.
+- **MCP read-only tool annotations**: Parses `annotations.readOnlyHint` from tool definitions. Read-only MCP tools included in fan-out queries with dedicated executor handler.
+- **MCP HTTP/SSE transport**: Streamable HTTP transport with SSE response parsing. Content-Type dispatch, multi-line data event assembly, session management via `Mcp-Session-Id` header.
+- **MCP resource and prompt discovery**: `resources/list` and `prompts/list` called during connect. Accessible via `/mcp resources` and `/mcp prompts` commands.
+- **MCP debug logging**: `mcp.debug: true` in config logs all JSON-RPC traffic to `~/.config/polycode/mcp-debug.log` with timestamps, server names, and direction indicators.
+- **MCP runtime reconfiguration**: `Reconfigure()` method diffs old vs new config, connects new servers, disconnects removed ones, reconnects changed ones. Wizard save and `/mcp remove` apply immediately without restart.
+- **MCP tool name collision detection**: Detects when two servers produce the same prefixed tool name. First server in config order wins; duplicate skipped with warning.
+- **MCP config validation**: Server names required and unique, command or URL required, non-negative timeout. Cross-namespace warning when provider and MCP server share a name.
+- **Thread-safe MCP client access**: `mcpHolder` with `sync.RWMutex` protects the shared MCPClient pointer across query and config-change goroutines.
+
 ## [1.18.0] - 2026-03-27
 
 ### Added

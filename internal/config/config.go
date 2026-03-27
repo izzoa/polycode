@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -72,15 +73,19 @@ type RolesConfig struct {
 
 // MCPServerConfig defines an external MCP server to connect to.
 type MCPServerConfig struct {
-	Name    string   `yaml:"name"`
-	Command string   `yaml:"command,omitempty"` // for stdio transport
-	Args    []string `yaml:"args,omitempty"`
-	URL     string   `yaml:"url,omitempty"` // for SSE transport
+	Name     string            `yaml:"name"`
+	Command  string            `yaml:"command,omitempty"` // for stdio transport
+	Args     []string          `yaml:"args,omitempty"`
+	URL      string            `yaml:"url,omitempty"`      // for SSE transport
+	Env      map[string]string `yaml:"env,omitempty"`      // environment variables for the server process
+	ReadOnly bool              `yaml:"read_only,omitempty"` // if true, skip confirmation for this server's tools
+	Timeout  int               `yaml:"timeout,omitempty"`   // per-call timeout in seconds (default 30)
 }
 
 // MCPConfig holds MCP client configuration.
 type MCPConfig struct {
 	Servers []MCPServerConfig `yaml:"servers,omitempty"`
+	Debug   bool              `yaml:"debug,omitempty"` // log JSON-RPC traffic to mcp-debug.log
 }
 
 // HooksConfig defines shell commands to run at lifecycle events.
@@ -227,6 +232,32 @@ func (c *Config) Validate() error {
 	}
 	if primaryCount > 1 {
 		return fmt.Errorf("exactly one provider must be marked as primary — found %d", primaryCount)
+	}
+
+	// Validate MCP server configs.
+	mcpNames := make(map[string]bool)
+	for i, s := range c.MCP.Servers {
+		if s.Name == "" {
+			return fmt.Errorf("mcp.servers[%d]: name is required", i)
+		}
+		if mcpNames[s.Name] {
+			return fmt.Errorf("mcp.servers[%d]: duplicate name %q", i, s.Name)
+		}
+		mcpNames[s.Name] = true
+
+		if s.Command == "" && s.URL == "" {
+			return fmt.Errorf("mcp server %q: command or url is required", s.Name)
+		}
+		if s.Timeout < 0 {
+			return fmt.Errorf("mcp server %q: timeout must be non-negative", s.Name)
+		}
+	}
+
+	// Cross-namespace warning: same name for provider and MCP server.
+	for _, s := range c.MCP.Servers {
+		if names[s.Name] {
+			log.Printf("Warning: provider and MCP server share the same name %q — this may be confusing", s.Name)
+		}
 	}
 
 	return nil

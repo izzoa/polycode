@@ -47,7 +47,8 @@ func (m Model) renderSettings() string {
 			}
 
 			cursor := "  "
-			if i == m.settingsCursor {
+			isSelected := !m.mcpSettingsFocused && i == m.settingsCursor
+			if isSelected {
 				cursor = m.styles.Prompt.Render("> ")
 			}
 
@@ -61,7 +62,86 @@ func (m Model) renderSettings() string {
 			)
 
 			rowStyle := lipgloss.NewStyle()
-			if i == m.settingsCursor {
+			if isSelected {
+				rowStyle = rowStyle.
+					Background(lipgloss.Color("236")).
+					Foreground(lipgloss.Color("252"))
+			}
+			sections = append(sections, rowStyle.Width(m.width-4).Render(row))
+		}
+	}
+
+	// MCP Servers section
+	sections = append(sections, "")
+	mcpTitle := m.styles.Title.Render("MCP Servers")
+	sections = append(sections, mcpTitle)
+
+	mcpServerCount := 0
+	if m.cfg != nil {
+		mcpServerCount = len(m.cfg.MCP.Servers)
+	}
+
+	if mcpServerCount == 0 && len(m.mcpServers) == 0 {
+		empty := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("241")).
+			Italic(true).
+			Render("No MCP servers configured")
+		sections = append(sections, empty)
+	} else {
+		// MCP table header
+		mcpHeader := fmt.Sprintf("  %-20s %-12s %-14s %-8s",
+			"NAME", "TRANSPORT", "STATUS", "TOOLS")
+		mcpHeaderStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("252")).
+			Background(lipgloss.Color("235"))
+		sections = append(sections, mcpHeaderStyle.Width(m.width-4).Render(mcpHeader))
+
+		// Build status map from MCPStatusMsg
+		statusMap := make(map[string]MCPServerStatus)
+		for _, s := range m.mcpServers {
+			statusMap[s.Name] = s
+		}
+
+		for i := 0; i < mcpServerCount; i++ {
+			srv := m.cfg.MCP.Servers[i]
+			transport := "stdio"
+			if srv.URL != "" {
+				transport = "sse"
+			}
+
+			status := "disconnected"
+			toolCount := "—"
+			statusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241")) // gray
+
+			if s, ok := statusMap[srv.Name]; ok {
+				status = s.Status
+				if s.ToolCount > 0 {
+					toolCount = fmt.Sprintf("%d", s.ToolCount)
+				}
+				switch s.Status {
+				case "connected":
+					statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")) // green
+				case "failed":
+					statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // red
+				}
+			}
+
+			cursor := "  "
+			if m.mcpSettingsFocused && i == m.mcpSettingsCursor {
+				cursor = m.styles.Prompt.Render("> ")
+			}
+
+			row := fmt.Sprintf("%s%-20s %-12s %s %-8s",
+				cursor,
+				srv.Name,
+				transport,
+				statusStyle.Render(fmt.Sprintf("%-14s", status)),
+				toolCount,
+			)
+
+			rowStyle := lipgloss.NewStyle()
+			if m.mcpSettingsFocused && i == m.mcpSettingsCursor {
 				rowStyle = rowStyle.
 					Background(lipgloss.Color("236")).
 					Foreground(lipgloss.Color("252"))
@@ -76,8 +156,8 @@ func (m Model) renderSettings() string {
 		sections = append(sections, m.settingsMsg)
 	}
 
-	// Delete confirmation prompt
-	if m.confirmDelete && m.cfg != nil && m.settingsCursor < len(m.cfg.Providers) {
+	// Delete confirmation prompts
+	if m.confirmDelete && !m.mcpSettingsFocused && m.cfg != nil && m.settingsCursor < len(m.cfg.Providers) {
 		sections = append(sections, "")
 		name := m.cfg.Providers[m.settingsCursor].Name
 		warnStyle := lipgloss.NewStyle().
@@ -86,11 +166,24 @@ func (m Model) renderSettings() string {
 		sections = append(sections, warnStyle.Render(
 			fmt.Sprintf("Remove provider '%s'? (y/n)", name)))
 	}
+	if m.mcpConfirmDelete && m.mcpSettingsFocused && m.cfg != nil && m.mcpSettingsCursor < len(m.cfg.MCP.Servers) {
+		sections = append(sections, "")
+		name := m.cfg.MCP.Servers[m.mcpSettingsCursor].Name
+		warnStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("196")).
+			Bold(true)
+		sections = append(sections, warnStyle.Render(
+			fmt.Sprintf("Remove MCP server '%s'? (y/n)", name)))
+	}
 
 	// Testing spinner
 	if m.testingProvider != "" {
 		sections = append(sections, "")
 		sections = append(sections, m.spinner.View()+" Testing "+m.testingProvider+"...")
+	}
+	if m.mcpTestingServer != "" {
+		sections = append(sections, "")
+		sections = append(sections, m.spinner.View()+" Testing MCP server "+m.mcpTestingServer+"...")
 	}
 
 	// Spacer
@@ -104,7 +197,11 @@ func (m Model) renderSettings() string {
 	// Action hints
 	hintStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("241"))
-	hints := hintStyle.Render("a:add  e:edit  d:delete  t:test  Esc:back")
+	focusHint := ""
+	if m.mcpSettingsFocused {
+		focusHint = " (MCP)"
+	}
+	hints := hintStyle.Render(fmt.Sprintf("a:add  e:edit  d:delete  t:test  Tab:switch%s  Esc:back", focusHint))
 	sections = append(sections, hints)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, sections...)

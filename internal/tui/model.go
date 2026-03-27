@@ -18,10 +18,12 @@ import (
 type viewMode int
 
 const (
-	viewChat        viewMode = iota
+	viewChat         viewMode = iota
 	viewSettings
 	viewAddProvider
 	viewEditProvider
+	viewAddMCP
+	viewEditMCP
 )
 
 // wizardStep represents a step in the add/edit provider wizard.
@@ -244,6 +246,27 @@ type Model struct {
 	settingsMsg    string // transient status message shown in settings
 	testingProvider string // provider name currently being tested
 
+	// MCP state
+	mcpServers        []MCPServerStatus // populated via MCPStatusMsg
+	mcpCallCount      int64             // total MCP tool calls (updated from MCPClient)
+	mcpSettingsCursor int
+	mcpSettingsFocused bool              // true = cursor in MCP section (Tab toggles)
+	mcpConfirmDelete   bool
+	mcpTestingServer   string            // server name currently being tested
+
+	// MCP Wizard state
+	mcpWizardStep       mcpWizardStep
+	mcpWizardData       config.MCPServerConfig
+	mcpWizardEnv        map[string]string
+	mcpWizardInput      textinput.Model
+	mcpWizardListCursor int
+	mcpWizardListItems  []string
+	mcpWizardEditing    bool   // true when editing an existing server
+	mcpWizardEditIndex  int    // index into config.MCP.Servers being edited
+	mcpWizardSource     string // "popular" or "custom"
+	mcpWizardTesting    bool
+	mcpWizardTestResult string
+
 	// Wizard state (add/edit provider)
 	wizardStep       wizardStep
 	wizardData       config.ProviderConfig
@@ -279,6 +302,9 @@ type Model struct {
 	onYoloToggle    func(enabled bool)
 	onConfigChanged func(*config.Config)
 	onTestProvider  func(providerName string)
+	onMCP           func(subcommand, args string)
+	onTestMCP       func(cfg config.MCPServerConfig)
+	onReconnectMCP  func(serverName string)
 
 	// Model listing for wizard
 	modelLister func(providerType string) []config.ModelSummary
@@ -398,6 +424,7 @@ func NewModel(providerNames []string, primaryName string, version string) Model 
 			{"/sessions", "List and manage sessions", ""},
 			{"/settings", "Open provider settings", "ctrl+s"},
 			{"/skill", "Manage installed skills", ""},
+			{"/mcp", "Manage MCP server connections", ""},
 			{"/yolo", "Toggle auto-approve mode", ""},
 			{"/exit", "Quit polycode", "ctrl+c"},
 		},
@@ -478,6 +505,21 @@ func (m *Model) SetConfigChangeHandler(handler func(*config.Config)) {
 // 't' in the settings screen to test a provider connection.
 func (m *Model) SetTestProviderHandler(handler func(providerName string)) {
 	m.onTestProvider = handler
+}
+
+// SetMCPHandler sets the callback for /mcp command.
+func (m *Model) SetMCPHandler(handler func(subcommand, args string)) {
+	m.onMCP = handler
+}
+
+// SetTestMCPHandler sets the callback for testing an MCP server connection.
+func (m *Model) SetTestMCPHandler(handler func(cfg config.MCPServerConfig)) {
+	m.onTestMCP = handler
+}
+
+// SetReconnectMCPHandler sets the callback for reconnecting an MCP server.
+func (m *Model) SetReconnectMCPHandler(handler func(serverName string)) {
+	m.onReconnectMCP = handler
 }
 
 // SetModelLister sets a callback that returns available models for a

@@ -25,7 +25,8 @@ internal/
   tokens/              → Token tracking, model limits registry, litellm metadata fetcher
   auth/                → Keyring storage, file fallback, OAuth device flow
   action/              → Tool execution, safety guardrails, project context for system prompts
-  tui/                 → Bubble Tea TUI (model, update, view, splash, settings, wizard)
+  tui/                 → Bubble Tea TUI (model, update, view, splash, settings, wizard, mcp_wizard)
+  mcp/                 → MCP client — server connections, tool/resource/prompt discovery, JSON-RPC transport (stdio + HTTP)
 openspec/              → OpenSpec change artifacts (proposals, designs, specs, tasks)
 ```
 
@@ -36,6 +37,7 @@ openspec/              → OpenSpec change artifacts (proposals, designs, specs,
 - **Fan-out pipeline**: `consensus.Pipeline.Run()` dispatches to all providers, collects responses, synthesizes via primary model. Three phases: dispatch → collect → synthesize.
 - **Config is the source of truth**: All provider setup flows through `config.Config`. TUI settings and YAML both write to the same config file.
 - **Token tracking**: `tokens.TokenTracker` accumulates per-provider usage. `tokens.MetadataStore` fetches model limits from litellm's JSON database with local cache + TTL.
+- **MCP client**: `mcp.MCPClient` manages connections to external MCP servers. Tool names are prefixed `mcp_{serverName}_{toolName}` and resolved via a lookup map (`toolIndex`) to avoid underscore-parsing ambiguity. Supports stdio (subprocess) and HTTP transports. A single multiplexed reader goroutine per stdio connection routes responses by request ID and dispatches notifications (e.g. `tools/list_changed`). Config changes apply at runtime via `Reconfigure()` without restart.
 
 ## Code Conventions
 
@@ -53,8 +55,12 @@ All pipeline → TUI communication uses typed messages sent via `program.Send()`
 - `ProviderChunkMsg` — streaming chunks from individual providers
 - `ConsensusChunkMsg` — streaming consensus output
 - `TokenUpdateMsg` — token usage snapshot after each turn
-- `ConfigChangedMsg` — triggers registry/pipeline rebuild
+- `ConfigChangedMsg` — triggers registry/pipeline rebuild + MCP reconfigure
 - `TestResultMsg` — provider connection test result
+- `MCPStatusMsg` — MCP server connection status update
+- `MCPTestResultMsg` — MCP server connection test result
+- `MCPToolsChangedMsg` — dynamic tool refresh notification
+- `MCPCallCountMsg` — MCP tool call count update
 
 ## When Modifying
 
@@ -63,9 +69,12 @@ All pipeline → TUI communication uses typed messages sent via `program.Send()`
 - After changing the TUI: keep view mode dispatch in `View()`, key routing in `Update()` via mode-specific handler functions (`updateChat`, `updateSettings`, `updateWizard`)
 - After changing consensus logic: update the integration tests in `consensus/integration_test.go`
 - After adding/modifying tools: update `AllTools()` and/or `ReadOnlyTools()` in `tools.go`, add executor dispatch in `executor.go`, update `ToolUsageHints()` in `project_context.go`. Read-only tools go in both sets; mutating tools go in `AllTools()` only and require `e.confirm()`.
+- After modifying MCP client: tool metadata changes go in `discoverTools()`. New config fields need: YAML tags in `MCPServerConfig`, validation in `Validate()`, change detection in `mcpConfigChanged()`, and handling in `Reconfigure()`. New MCP methods route through `sendRequest()` (auto-logged when debug enabled). Test with the `newTestClientFull` mock pattern in `client_test.go`. The MCP wizard lives in `tui/mcp_wizard.go`; wizard test uses `TestConnection()` with staged config.
 
 ### Tool Sets
 
 **`AllTools()` (primary model — 10 tools):** `file_read`, `file_write`, `file_edit`, `file_delete`, `file_rename`, `shell_exec`, `list_directory`, `grep_search`, `find_files`, `file_info`
 
 **`ReadOnlyTools()` (fan-out providers — 5 tools):** `file_read`, `file_info`, `list_directory`, `grep_search`, `find_files`
+
+**MCP tools (discovered at runtime):** Prefixed `mcp_{server}_{tool}`, resolved via `MCPClient.ResolveToolCall()`. All MCP tools go to the primary model; read-only MCP tools (server `read_only: true` or tool `readOnlyHint` annotation) also go to fan-out. MCP tools route through the confirmation gate unless the server is marked read-only.

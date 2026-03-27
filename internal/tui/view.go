@@ -29,6 +29,8 @@ func (m Model) View() string {
 		return m.renderSettings()
 	case viewAddProvider, viewEditProvider:
 		return m.renderWizard()
+	case viewAddMCP, viewEditMCP:
+		return m.renderMCPWizard()
 	default:
 		return m.renderChat()
 	}
@@ -405,6 +407,30 @@ func (m Model) renderTabBar() string {
 		} else {
 			header = append(header, inactiveStyle.Render(label))
 		}
+	}
+
+	// MCP connection indicator + call count (right-aligned)
+	if len(m.mcpServers) > 0 {
+		connected := 0
+		total := len(m.mcpServers)
+		for _, s := range m.mcpServers {
+			if s.Status == "connected" {
+				connected++
+			}
+		}
+		var mcpStyle lipgloss.Style
+		mcpLabel := fmt.Sprintf("MCP: %d/%d", connected, total)
+		if connected == total {
+			mcpLabel += " ✓"
+			mcpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+		} else {
+			mcpLabel += " ⚠"
+			mcpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+		}
+		if m.mcpCallCount > 0 {
+			mcpLabel += fmt.Sprintf(" %d calls", m.mcpCallCount)
+		}
+		header = append(header, "  "+mcpStyle.Render(mcpLabel))
 	}
 
 	bar := strings.Join(header, "")
