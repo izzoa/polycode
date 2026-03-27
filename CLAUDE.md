@@ -24,7 +24,7 @@ internal/
   consensus/           → Fan-out dispatcher, consensus engine, pipeline orchestration, truncation
   tokens/              → Token tracking, model limits registry, litellm metadata fetcher
   auth/                → Keyring storage, file fallback, OAuth device flow
-  action/              → Tool execution (file_read, file_write, shell_exec), safety guardrails
+  action/              → Tool execution, safety guardrails, project context for system prompts
   tui/                 → Bubble Tea TUI (model, update, view, splash, settings, wizard)
 openspec/              → OpenSpec change artifacts (proposals, designs, specs, tasks)
 ```
@@ -62,3 +62,10 @@ All pipeline → TUI communication uses typed messages sent via `program.Send()`
 - After adding new config fields: update the struct + YAML tags, add validation in `Validate()`, update the setup wizard if applicable
 - After changing the TUI: keep view mode dispatch in `View()`, key routing in `Update()` via mode-specific handler functions (`updateChat`, `updateSettings`, `updateWizard`)
 - After changing consensus logic: update the integration tests in `consensus/integration_test.go`
+- After adding/modifying tools: update `AllTools()` and/or `ReadOnlyTools()` in `tools.go`, add executor dispatch in `executor.go`, update `ToolUsageHints()` in `project_context.go`. Read-only tools go in both sets; mutating tools go in `AllTools()` only and require `e.confirm()`.
+
+### Tool Sets
+
+**`AllTools()` (primary model — 10 tools):** `file_read`, `file_write`, `file_edit`, `file_delete`, `file_rename`, `shell_exec`, `list_directory`, `grep_search`, `find_files`, `file_info`
+
+**`ReadOnlyTools()` (fan-out providers — 5 tools):** `file_read`, `file_info`, `list_directory`, `grep_search`, `find_files`

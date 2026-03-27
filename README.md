@@ -94,10 +94,15 @@ Polycode fetches model information from [litellm's model database](https://githu
 
 The consensus output can drive coding actions, just like single-model assistants:
 
-- **File read** — read file contents into conversation context (no confirmation needed, path traversal blocked). Directories return a listing.
-- **List directory** — list directory contents, optionally recursive (up to 3 levels). Available during fan-out for all providers.
-- **Grep search** — search for text/regex patterns across project files with file type filtering. Available during fan-out for all providers.
-- **File write** — propose changes with **unified diff preview** (`+`/`-` lines for existing files, content preview for new files), user confirms before applying
+- **File read** — read file contents with optional line ranges (`start_line`/`end_line`). Directories return a listing. No confirmation needed.
+- **File edit** — targeted search-and-replace with unified diff preview. Models send just the changed text instead of rewriting whole files.
+- **File write** — create or overwrite files with **unified diff preview**, user confirms before applying
+- **File delete** — delete files or empty directories with confirmation. Non-recursive by design.
+- **File rename** — move or rename files with confirmation. Prevents accidental overwrites.
+- **File info** — get file metadata (size, line count, text/binary type) without reading contents. Available during fan-out.
+- **Find files** — glob-based file search (e.g., `**/*_test.go`). Returns paths only. Available during fan-out.
+- **List directory** — list directory contents, optionally recursive (up to 3 levels). Available during fan-out.
+- **Grep search** — regex/text search with context lines, case-insensitive mode, include/exclude filters, files-only mode, configurable result limits. Available during fan-out.
 - **Shell exec** — run commands with confirmation, **hardened destructive command detection** (`rm`, `sudo`, pipe-to-shell, `/dev/` paths, clobber operators, and more)
 - **Tool-use loop** — the primary model can chain tool calls until done (no iteration limit, bounded by the 5-minute context timeout)
 - **Auto-verification** — after file writes, auto-detected test suites (`go test`, `npm test`, `cargo test`, `pytest`, `make test`) run automatically and report pass/fail
@@ -515,7 +520,7 @@ polycode/
 │   ├── provider/           # Provider interface + 4 adapters (Anthropic, OpenAI, Gemini, OpenAI-compat)
 │   ├── consensus/          # Fan-out, truncation, mode-aware synthesis pipeline
 │   ├── tokens/             # Token tracking, cost estimation, model metadata (litellm)
-│   ├── action/             # Tool execution (file_read, file_write, shell_exec, verification)
+│   ├── action/             # Tool execution (10 tools), safety guardrails, project context
 │   ├── auth/               # Credential management (keyring, file, OAuth + auto-refresh)
 │   ├── tui/                # Bubble Tea terminal UI (command palette, provenance, input history)
 │   ├── hooks/              # Lifecycle hooks (pre_query, post_query, etc.)

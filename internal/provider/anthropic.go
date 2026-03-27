@@ -297,6 +297,7 @@ func (p *AnthropicProvider) Query(ctx context.Context, messages []Message, opts 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", p.apiKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("User-Agent", "polycode")
 
 	resp, err := p.client.Do(req)
 	if err != nil {

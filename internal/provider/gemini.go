@@ -278,6 +278,7 @@ func (p *GeminiProvider) Query(ctx context.Context, messages []Message, opts Que
 	if p.authMethod == "oauth" {
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
+	req.Header.Set("User-Agent", "polycode")
 
 	resp, err := p.client.Do(req)
 	if err != nil {

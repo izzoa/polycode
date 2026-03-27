@@ -83,13 +83,17 @@ func ToolUsageHints() string {
 
 You have the following read-only tools for exploring this codebase:
 
-- **file_read** — Read a file's contents. Pass a directory path to get its listing. Use "." for the project root.
+- **file_read** — Read a file's contents. Pass a directory path to get its listing. Use "." for the project root. Supports start_line/end_line for reading specific line ranges.
 - **list_directory** — List directory contents. Set recursive=true to see up to 3 levels deep. Use "." for the project root.
-- **grep_search** — Search for text/regex patterns across files. Supports file type filtering with the "include" parameter (e.g., "*.go").
+- **grep_search** — Search for text/regex patterns across files. Supports "include" and "exclude" file filters, "case_insensitive" flag, "context_lines" for surrounding context, "files_only" to list matching paths only, and "max_count" to control result limits (default 100).
+- **find_files** — Find files by glob pattern (e.g., "*.go", "**/*_test.go"). Returns paths only.
+- **file_info** — Get file metadata (size, line count, type) without reading the full contents.
 
 **Tips for efficient exploration:**
 1. Start by reading key files like README.md, go.mod, or the main entry point.
 2. Use grep_search to find specific functions, types, or patterns.
-3. Use list_directory with recursive=true on specific subdirectories, not the whole project.
-4. Do NOT attempt to use shell_exec, file_write, or any tools not listed above — they are not available to you.`
+3. Use find_files to locate files by name or extension before reading them.
+4. Use file_info to check file size/type before reading large files. Use start_line/end_line on file_read for targeted reads.
+5. Use list_directory with recursive=true on specific subdirectories, not the whole project.
+6. Do NOT attempt to use shell_exec, file_write, or any tools not listed above — they are not available to you.`
 }

@@ -122,6 +122,8 @@ func (p *OpenAICompatProvider) Query(ctx context.Context, messages []Message, op
 	if !p.noAuth {
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
+	req.Header.Set("User-Agent", "polycode")
+	req.Header.Set("X-Title", "Polycode")
 
 	resp, err := p.client.Do(req)
 	if err != nil {

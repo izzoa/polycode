@@ -61,6 +61,16 @@ func (e *Executor) Execute(call provider.ToolCall) ToolResult {
 		return e.executeListDirectory(call)
 	case "grep_search":
 		return e.executeGrepSearch(call)
+	case "file_edit":
+		return e.executeFileEdit(call)
+	case "file_delete":
+		return e.executeFileDelete(call)
+	case "file_rename":
+		return e.executeFileRename(call)
+	case "find_files":
+		return e.executeFindFiles(call)
+	case "file_info":
+		return e.executeFileInfo(call)
 	default:
 		// Try external handler (e.g. MCP tools) before failing
 		if e.external != nil {
@@ -80,7 +90,9 @@ func (e *Executor) Execute(call provider.ToolCall) ToolResult {
 
 func (e *Executor) executeFileRead(call provider.ToolCall) ToolResult {
 	var args struct {
-		Path string `json:"path"`
+		Path      string `json:"path"`
+		StartLine int    `json:"start_line"`
+		EndLine   int    `json:"end_line"`
 	}
 	if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
 		// Some providers send the path as a raw string, not JSON object.
@@ -108,7 +120,7 @@ func (e *Executor) executeFileRead(call provider.ToolCall) ToolResult {
 			Error: fmt.Errorf("file_read: path %q appears corrupted (raw arguments: %s). Try passing the full file path like \"README.md\" or \"./internal/config/config.go\".", args.Path, call.Arguments),
 		}
 	}
-	result := e.readFile(args.Path)
+	result := e.readFile(args.Path, args.StartLine, args.EndLine)
 	result.ToolCallID = call.ID
 	return result
 }

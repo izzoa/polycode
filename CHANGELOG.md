@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-03-27
+
+### Added
+- **`file_edit` tool**: Targeted search-and-replace editing. Models send just the text to find and its replacement instead of rewriting entire files. Shows unified diff preview in confirmation. Supports `replace_all` for multiple occurrences.
+- **`find_files` tool**: Glob-based file search (e.g., `*.go`, `**/*_test.go`). Returns matching paths without reading contents. Available during fan-out.
+- **`file_info` tool**: File metadata — size, line count, type (text/binary), permissions, modification time. Lets models decide whether to read a file without consuming context. Available during fan-out.
+- **`file_delete` tool**: Delete files or empty directories with confirmation. Non-recursive by design — directory tree deletion stays gated behind `shell_exec`.
+- **`file_rename` tool**: Rename or move files with confirmation. Prevents accidental overwrites, creates parent directories, rejects self-subtree moves.
+- **`file_read` line range support**: New `start_line`/`end_line` parameters for reading specific line ranges. Models can target reads from `grep_search` hits instead of loading entire files.
+- **Enhanced `grep_search`**: Five new optional parameters — `context_lines` (before/after context like grep -C), `case_insensitive`, `exclude` (file glob filter), `max_count` (configurable result limit), `files_only` (return paths only like grep -l).
+- **User-Agent headers**: All provider HTTP requests now include `User-Agent: polycode` for API analytics. OpenAI-compatible providers also send `X-Title: Polycode`.
+
+### Fixed
+- **`AllTools()` missing tools**: The primary model now gets `list_directory` and `grep_search` in its tool set. Previously these were only available to fan-out providers, forcing the primary to use `shell_exec` (which requires confirmation) for basic navigation.
+
 ## [1.17.1] - 2026-03-27
 
 ### Fixed
