@@ -395,6 +395,9 @@ func NewModel(providerNames []string, primaryName string, version string) Model 
 	ti := textinput.New()
 	ti.CharLimit = 256
 
+	mcpTI := textinput.New()
+	mcpTI.CharLimit = 512
+
 	return Model{
 		textarea:         ta,
 		panels:           panels,
@@ -412,6 +415,7 @@ func NewModel(providerNames []string, primaryName string, version string) Model 
 		styles:         defaultStyles(),
 		mode:           viewChat,
 		wizardInput:    ti,
+		mcpWizardInput: mcpTI,
 		slashCommands: []slashCommand{
 			{"/clear", "Clear conversation and reset context", ""},
 			{"/export [path]", "Export session as JSON", ""},
