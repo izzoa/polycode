@@ -83,15 +83,30 @@ func (e *Executor) executeFileRead(call provider.ToolCall) ToolResult {
 		Path string `json:"path"`
 	}
 	if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
-		return ToolResult{
-			ToolCallID: call.ID,
-			Error:      fmt.Errorf("invalid arguments for file_read: %w", err),
+		// Some providers send the path as a raw string, not JSON object.
+		raw := strings.TrimSpace(call.Arguments)
+		raw = strings.Trim(raw, "\"'")
+		if raw != "" && !strings.HasPrefix(raw, "{") {
+			args.Path = raw
+		} else {
+			return ToolResult{
+				ToolCallID: call.ID,
+				Error:      fmt.Errorf("file_read: could not parse arguments %q — expected {\"path\": \"...\"}. Raw: %s", call.Arguments, call.Arguments),
+			}
 		}
 	}
 	// Normalize empty or garbage paths to the project root.
 	args.Path = strings.TrimSpace(args.Path)
 	if args.Path == "" || args.Path == ":" || args.Path == "." {
 		args.Path = "."
+	}
+	// If path looks like a fragment (e.g., ",md" from corrupted args), show the
+	// raw arguments to help diagnose the provider's tool call format.
+	if len(args.Path) > 0 && args.Path[0] == ',' {
+		return ToolResult{
+			ToolCallID: call.ID,
+			Error: fmt.Errorf("file_read: path %q appears corrupted (raw arguments: %s). Try passing the full file path like \"README.md\" or \"./internal/config/config.go\".", args.Path, call.Arguments),
+		}
 	}
 	result := e.readFile(args.Path)
 	result.ToolCallID = call.ID

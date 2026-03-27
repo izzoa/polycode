@@ -56,9 +56,9 @@ func (e *Executor) readFile(path string) ToolResult {
 			hint := ""
 			if entries, dirErr := os.ReadDir(dir); dirErr == nil {
 				var names []string
-				for _, e := range entries {
-					n := e.Name()
-					if e.IsDir() {
+				for _, entry := range entries {
+					n := entry.Name()
+					if entry.IsDir() {
 						n += "/"
 					}
 					names = append(names, n)
@@ -67,14 +67,14 @@ func (e *Executor) readFile(path string) ToolResult {
 						break
 					}
 				}
-				hint = fmt.Sprintf("\nFiles in %s: %s", filepath.Base(dir), strings.Join(names, ", "))
+				hint = fmt.Sprintf("\nAvailable in %s/: %s", filepath.Base(dir), strings.Join(names, ", "))
 			}
 			return ToolResult{
-				Error: fmt.Errorf("file_read: %q not found.%s\nHint: use list_directory to explore, or grep_search to find files by content.", path, hint),
+				Error: fmt.Errorf("file_read: %q not found.%s\nHint: use list_directory to see directory contents, or grep_search to find files by content.", path, hint),
 			}
 		}
 		return ToolResult{
-			Error: fmt.Errorf("file_read: cannot read %q: %w", path, err),
+			Error: fmt.Errorf("file_read: cannot access %q: %w", path, err),
 		}
 	}
 

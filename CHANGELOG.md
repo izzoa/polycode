@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.17.1] - 2026-03-27
+
+### Fixed
+- **file_read handles non-JSON arguments**: Some OpenAI-compatible providers (e.g., kimi) send tool arguments as raw strings instead of JSON objects. `file_read` now falls back to parsing the raw string as a direct path when JSON unmarshal fails.
+- **Corrupted path detection**: Paths starting with `,` (from corrupted tool call argument accumulation) now show the raw arguments in the error to aid debugging, instead of a confusing "not found" message.
+- **Better file-not-found hints**: Error messages now show "Available in dir/:" with actual filenames from the parent directory.
+
 ## [1.17.0] - 2026-03-26
 
 ### Added
