@@ -318,6 +318,36 @@ func main() {
 	sessionCmd.AddCommand(sessionListCmd, sessionDeleteCmd, sessionShowCmd)
 	rootCmd.AddCommand(sessionCmd)
 
+	// MCP subcommands
+	mcpCmd := &cobra.Command{
+		Use:   "mcp",
+		Short: "Manage MCP (Model Context Protocol) servers",
+	}
+	mcpListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List configured MCP servers",
+		RunE:  runMCPList,
+	}
+	mcpAddCmd := &cobra.Command{
+		Use:   "add",
+		Short: "Add a new MCP server interactively",
+		RunE:  runMCPAdd,
+	}
+	mcpRemoveCmd := &cobra.Command{
+		Use:   "remove [name]",
+		Short: "Remove an MCP server",
+		Args:  cobra.MaximumNArgs(1),
+		RunE:  runMCPRemove,
+	}
+	mcpTestCmd := &cobra.Command{
+		Use:   "test [name]",
+		Short: "Test an MCP server connection",
+		Args:  cobra.MaximumNArgs(1),
+		RunE:  runMCPTest,
+	}
+	mcpCmd.AddCommand(mcpListCmd, mcpAddCmd, mcpRemoveCmd, mcpTestCmd)
+	rootCmd.AddCommand(mcpCmd)
+
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}

@@ -193,6 +193,7 @@ Models without reasoning support silently ignore the parameter.
 | `polycode serve [--port N]` | Editor bridge HTTP server (default 9876) |
 | `polycode export [--format md\|json]` | Export session |
 | `polycode import <file>` | Import session |
+| `polycode mcp list\|add\|remove\|test` | Manage MCP servers |
 | `polycode skill list\|install\|remove` | Manage skills |
 | `polycode session list\|show\|delete` | Manage saved sessions |
 | `polycode auth login\|logout\|status` | Manage credentials |

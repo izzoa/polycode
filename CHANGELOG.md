@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.19.2] - 2026-03-27
+
+### Added
+- **`polycode mcp` CLI command**: Manage MCP servers from the command line without launching the TUI. Subcommands: `list`, `add` (interactive wizard), `remove [name]` (with picker), `test [name]` (connection test using `TestConnection`).
+
+### Fixed
+- **MCP wizard nil panic**: Fixed nil pointer dereference when using `/mcp add` — the `mcpWizardInput` text input was declared but never initialized with `textinput.New()`.
+
 ## [1.19.0] - 2026-03-27
 
 ### Added
