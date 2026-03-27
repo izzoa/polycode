@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.19.3] - 2026-03-27
+
+### Added
+- **Command palette subcommand hints**: `/mode`, `/sessions`, `/skill`, and `/mcp` now show their subcommands in the palette when you type the parent command. Subcommands are hidden until you type the parent prefix, keeping the initial palette clean.
+
 ## [1.19.2] - 2026-03-27
 
 ### Added

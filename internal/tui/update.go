@@ -1201,14 +1201,22 @@ func (m Model) buildChatLog() string {
 
 // filterPaletteCommands returns commands matching the given filter string.
 // Matching is case-insensitive and checks both name and description.
+// Subcommands (e.g. "/mcp list") are hidden until the filter includes
+// their parent prefix (e.g. typing "/mcp" reveals all /mcp subcommands).
 func (m Model) filterPaletteCommands(filter string) []slashCommand {
-	if filter == "" {
-		return append([]slashCommand{}, m.slashCommands...)
-	}
 	lower := strings.ToLower(filter)
 	var matches []slashCommand
 	for _, cmd := range m.slashCommands {
-		if strings.Contains(strings.ToLower(cmd.Name), lower) ||
+		// Hide subcommands (contain a space) when filter is empty or
+		// doesn't match their parent prefix.
+		if strings.Contains(cmd.Name, " ") {
+			parent := cmd.Name[:strings.Index(cmd.Name, " ")]
+			if !strings.HasPrefix(lower, strings.ToLower(parent)) {
+				continue
+			}
+		}
+		if filter == "" ||
+			strings.Contains(strings.ToLower(cmd.Name), lower) ||
 			strings.Contains(strings.ToLower(cmd.Description), lower) {
 			matches = append(matches, cmd)
 		}
