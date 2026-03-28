@@ -23,6 +23,11 @@ func (m Model) View() string {
 		return m.renderHelp()
 	}
 
+	// MCP dashboard overlay
+	if m.showMCPDashboard {
+		return m.renderMCPDashboard()
+	}
+
 	// Dispatch based on current view mode
 	switch m.mode {
 	case viewSettings:
@@ -230,6 +235,126 @@ func (m Model) renderWorkerProgress() string {
 	return style.Render(strings.Join(lines, "\n"))
 }
 
+// renderMCPDashboard renders the MCP dashboard overlay.
+func (m Model) renderMCPDashboard() string {
+	var sections []string
+
+	title := m.styles.Title.Render("MCP Dashboard")
+	sections = append(sections, title)
+	sections = append(sections, "")
+
+	if len(m.mcpDashboardData) == 0 {
+		sections = append(sections, m.styles.Dimmed.Render("  No MCP servers configured."))
+	} else {
+		// Table header.
+		header := fmt.Sprintf("  %-22s %-10s %-16s %-6s %-5s",
+			"SERVER", "TRANSPORT", "STATUS", "TOOLS", "R/O")
+		headerStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("252")).
+			Background(lipgloss.Color("235"))
+		sections = append(sections, headerStyle.Width(m.width-4).Render(header))
+
+		// Server rows.
+		for i, ds := range m.mcpDashboardData {
+			cursor := "  "
+			if i == m.mcpDashboardCursor {
+				cursor = m.styles.Prompt.Render("> ")
+			}
+
+			var statusStyle lipgloss.Style
+			statusText := ds.Status
+			switch ds.Status {
+			case "connected":
+				statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+				statusText = "✓ connected"
+			case "failed":
+				statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+				statusText = "✗ failed"
+			default:
+				statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+			}
+
+			toolCount := "—"
+			if ds.ToolCount > 0 {
+				toolCount = fmt.Sprintf("%d", ds.ToolCount)
+			}
+			ro := "no"
+			if ds.ReadOnly {
+				ro = "yes"
+			}
+
+			transport := ds.Transport
+			if transport == "" {
+				transport = "stdio"
+			}
+
+			row := fmt.Sprintf("%s%-22s %-10s %s %-6s %-5s",
+				cursor,
+				ds.Name,
+				transport,
+				statusStyle.Render(fmt.Sprintf("%-16s", statusText)),
+				toolCount,
+				ro,
+			)
+
+			rowStyle := lipgloss.NewStyle()
+			if i == m.mcpDashboardCursor {
+				rowStyle = rowStyle.
+					Background(lipgloss.Color("236")).
+					Foreground(lipgloss.Color("252"))
+			}
+			sections = append(sections, rowStyle.Width(m.width-4).Render(row))
+
+			// Error detail for failed servers.
+			if ds.Error != "" {
+				errLine := "                              └ " + ds.Error
+				sections = append(sections, m.styles.StatusUnhealthy.Render(errLine))
+			}
+		}
+
+		// Per-server tools.
+		sections = append(sections, "")
+		sections = append(sections, m.styles.Dimmed.Render("  Tools:"))
+		for _, ds := range m.mcpDashboardData {
+			if len(ds.Tools) == 0 {
+				continue
+			}
+			toolList := strings.Join(ds.Tools, ", ")
+			if len(toolList) > m.width-30 && m.width > 40 {
+				toolList = toolList[:m.width-33] + "..."
+			}
+			sections = append(sections, fmt.Sprintf("    %s: %s", ds.Name, m.styles.Dimmed.Render(toolList)))
+		}
+
+		// Aggregate stats.
+		sections = append(sections, "")
+		connectedCount := 0
+		for _, ds := range m.mcpDashboardData {
+			if ds.Status == "connected" {
+				connectedCount++
+			}
+		}
+		stats := fmt.Sprintf("  %d servers | %d tools | %d calls this session",
+			connectedCount, m.mcpDashboardTotal, m.mcpDashboardCalls)
+		sections = append(sections, m.styles.Dimmed.Render(stats))
+	}
+
+	// Spacer.
+	contentLines := len(sections)
+	remaining := m.height - contentLines - 4
+	if remaining > 0 {
+		sections = append(sections, strings.Repeat("\n", remaining))
+	}
+
+	// Action hints.
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	sections = append(sections, hintStyle.Render("j/k:navigate  r:reconnect  t:test  /settings:manage  Esc:close"))
+
+	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
+	return m.styles.App.Width(m.width).Render(content)
+}
+
 // renderHelp renders the help overlay showing all keyboard shortcuts.
 func (m Model) renderHelp() string {
 	var sections []string
@@ -258,6 +383,7 @@ func (m Model) renderHelp() string {
 		{"Tab", "Accept slash completion"},
 		{"↑ (input empty)", "Focus tab bar for ←/→ navigation"},
 		{"↓ / Enter / Esc", "Return focus to input"},
+		{"m", "Toggle MCP dashboard (when input empty)"},
 		{"p", "Toggle provenance (when input empty)"},
 		{"?", "Toggle help (when input empty)"},
 		{"Enter", "Submit prompt"},
@@ -409,7 +535,7 @@ func (m Model) renderTabBar() string {
 		}
 	}
 
-	// MCP connection indicator + call count (right-aligned)
+	// MCP connection indicator + call count — selectable tab when tab bar focused
 	if len(m.mcpServers) > 0 {
 		connected := 0
 		total := len(m.mcpServers)
@@ -418,19 +544,29 @@ func (m Model) renderTabBar() string {
 				connected++
 			}
 		}
-		var mcpStyle lipgloss.Style
 		mcpLabel := fmt.Sprintf("MCP: %d/%d", connected, total)
 		if connected == total {
 			mcpLabel += " ✓"
-			mcpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
 		} else {
 			mcpLabel += " ⚠"
-			mcpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 		}
 		if m.mcpCallCount > 0 {
 			mcpLabel += fmt.Sprintf(" %d calls", m.mcpCallCount)
 		}
-		header = append(header, "  "+mcpStyle.Render(mcpLabel))
+
+		mcpTabIdx := len(m.panels) + 1
+		if m.tabBarFocused && m.activeTab == mcpTabIdx {
+			header = append(header, activeStyle.Render(mcpLabel))
+		} else {
+			// Color by health status when not selected.
+			var mcpStyle lipgloss.Style
+			if connected == total {
+				mcpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+			} else {
+				mcpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+			}
+			header = append(header, "  "+mcpStyle.Render(mcpLabel))
+		}
 	}
 
 	bar := strings.Join(header, "")

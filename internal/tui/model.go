@@ -249,6 +249,11 @@ type Model struct {
 	// MCP state
 	mcpServers        []MCPServerStatus // populated via MCPStatusMsg
 	mcpCallCount      int64             // total MCP tool calls (updated from MCPClient)
+	showMCPDashboard  bool
+	mcpDashboardData  []MCPDashboardServer
+	mcpDashboardTotal int
+	mcpDashboardCalls int64
+	mcpDashboardCursor int
 	mcpRegistryResults []MCPRegistryResult // live registry search results for wizard browse
 	mcpRegistryOffline bool               // true if registry was unreachable
 	mcpSettingsCursor int
@@ -311,6 +316,7 @@ type Model struct {
 	onMCP              func(subcommand, args string)
 	onTestMCP          func(cfg config.MCPServerConfig)
 	onReconnectMCP     func(serverName string)
+	onMCPDashboardRefresh func() // triggers async fetch of dashboard data
 	onMCPRegistryFetch  func()                                          // triggers async registry fetch for browse step
 	onMCPRegistrySelect func(result MCPRegistryResult) config.MCPServerConfig // maps registry result to config (returns it)
 
@@ -551,6 +557,11 @@ func (m *Model) SetTestMCPHandler(handler func(cfg config.MCPServerConfig)) {
 // SetReconnectMCPHandler sets the callback for reconnecting an MCP server.
 func (m *Model) SetReconnectMCPHandler(handler func(serverName string)) {
 	m.onReconnectMCP = handler
+}
+
+// SetMCPDashboardRefreshHandler sets the callback for refreshing dashboard data.
+func (m *Model) SetMCPDashboardRefreshHandler(handler func()) {
+	m.onMCPDashboardRefresh = handler
 }
 
 // SetMCPRegistryFetchHandler sets the callback for triggering registry fetch.

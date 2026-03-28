@@ -223,6 +223,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mcpWizardListCursor = 0
 		return m, nil
 
+	case MCPDashboardDataMsg:
+		m.mcpDashboardData = msg.Servers
+		m.mcpDashboardTotal = msg.TotalTools
+		m.mcpDashboardCalls = msg.TotalCalls
+		return m, nil
+
 	case MCPToolsChangedMsg:
 		// Update tool count for the changed server in mcpServers.
 		for i, s := range m.mcpServers {
@@ -309,6 +315,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 			return m, nil
+		}
+
+		// MCP dashboard intercepts all keys when open
+		if m.showMCPDashboard {
+			return m.updateMCPDashboard(msg)
 		}
 
 		// Mode picker overlay intercepts all keys when open
@@ -677,9 +688,12 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 	case "right":
-		// Switch tabs when tab bar is focused
+		// Switch tabs when tab bar is focused. Extra stop for MCP if servers exist.
 		if m.tabBarFocused {
 			maxTab := len(m.panels)
+			if len(m.mcpServers) > 0 {
+				maxTab++ // MCP tab is one past last provider
+			}
 			if m.activeTab < maxTab {
 				m.activeTab++
 			}
@@ -723,6 +737,15 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.showProvenance = !m.showProvenance
 			return m, nil
 		}
+	case "m":
+		if strings.TrimSpace(m.textarea.Value()) == "" && len(m.mcpServers) > 0 {
+			m.showMCPDashboard = !m.showMCPDashboard
+			if m.showMCPDashboard && m.onMCPDashboardRefresh != nil {
+				m.mcpDashboardCursor = 0
+				m.onMCPDashboardRefresh()
+			}
+			return m, nil
+		}
 	case "enter":
 		// Palette open: if user hasn't typed arguments yet, Enter accepts the
 		// palette selection (like Tab). If they already typed the full command
@@ -754,7 +777,7 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 				return m, nil
 			}
 		}
-		// Tab bar focused: Enter on mode selector opens picker, otherwise returns to textarea
+		// Tab bar focused: Enter on mode selector opens picker, MCP opens dashboard, otherwise returns to textarea
 		if m.tabBarFocused {
 			if m.activeTab == -1 {
 				// Open mode picker
@@ -765,6 +788,17 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 						m.modePickerIdx = i
 						break
 					}
+				}
+				return m, nil
+			}
+			// MCP tab (one past last provider)
+			mcpTabIdx := len(m.panels) + 1
+			if len(m.mcpServers) > 0 && m.activeTab == mcpTabIdx {
+				m.tabBarFocused = false
+				m.showMCPDashboard = true
+				m.mcpDashboardCursor = 0
+				if m.onMCPDashboardRefresh != nil {
+					m.onMCPDashboardRefresh()
 				}
 				return m, nil
 			}
@@ -1093,6 +1127,51 @@ func (m Model) updateSettings(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 
+	return m, nil
+}
+
+// updateMCPDashboard handles key events when the MCP dashboard is open.
+func (m Model) updateMCPDashboard(msg tea.KeyMsg) (Model, tea.Cmd) {
+	serverCount := len(m.mcpDashboardData)
+
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc", "m":
+		m.showMCPDashboard = false
+		return m, nil
+	case "j", "down":
+		if m.mcpDashboardCursor < serverCount-1 {
+			m.mcpDashboardCursor++
+		}
+		return m, nil
+	case "k", "up":
+		if m.mcpDashboardCursor > 0 {
+			m.mcpDashboardCursor--
+		}
+		return m, nil
+	case "r":
+		if serverCount > 0 && m.onReconnectMCP != nil {
+			name := m.mcpDashboardData[m.mcpDashboardCursor].Name
+			m.onReconnectMCP(name)
+			// Refresh dashboard after reconnect.
+			if m.onMCPDashboardRefresh != nil {
+				m.onMCPDashboardRefresh()
+			}
+		}
+		return m, m.spinner.Tick
+	case "t":
+		if serverCount > 0 && m.onTestMCP != nil && m.cfg != nil {
+			name := m.mcpDashboardData[m.mcpDashboardCursor].Name
+			for _, s := range m.cfg.MCP.Servers {
+				if s.Name == name {
+					m.onTestMCP(s)
+					break
+				}
+			}
+		}
+		return m, m.spinner.Tick
+	}
 	return m, nil
 }
 

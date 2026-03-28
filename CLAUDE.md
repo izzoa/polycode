@@ -62,6 +62,7 @@ All pipeline → TUI communication uses typed messages sent via `program.Send()`
 - `MCPTestResultMsg` — MCP server connection test result
 - `MCPToolsChangedMsg` — dynamic tool refresh notification
 - `MCPCallCountMsg` — MCP tool call count update
+- `MCPDashboardDataMsg` — full dashboard data (servers, tools, stats)
 
 ## When Modifying
 

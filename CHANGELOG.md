@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.20.1] - 2026-03-28
+
+### Added
+- **MCP Dashboard** — Press `m` (with empty input) to toggle a full-screen MCP dashboard overlay showing: server table with status/transport/tools/read-only, color-coded connection health, per-server tool lists, aggregate stats, and error details. Navigate with `j`/`k`, reconnect with `r`, test with `t`.
+- **MCP tab in tab bar** — The MCP indicator is now a selectable tab. Navigate past the last provider with arrow keys and press Enter to open the dashboard. Highlighted with active styling when selected.
+
 ## [1.20.0] - 2026-03-28
 
 ### Added

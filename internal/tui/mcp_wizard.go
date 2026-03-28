@@ -37,6 +37,26 @@ type MCPRegistryResultsMsg struct {
 	Error   error
 }
 
+// MCPDashboardServer holds full display data for one server in the MCP dashboard.
+type MCPDashboardServer struct {
+	Name          string
+	Transport     string // "stdio" or "sse"
+	Status        string // "connected", "failed", "disconnected"
+	ToolCount     int
+	ReadOnly      bool
+	Error         string
+	Tools         []string // prefixed tool names
+	ResourceCount int
+	PromptCount   int
+}
+
+// MCPDashboardDataMsg delivers full MCP dashboard data to the TUI.
+type MCPDashboardDataMsg struct {
+	Servers    []MCPDashboardServer
+	TotalTools int
+	TotalCalls int64
+}
+
 // MCPServerStatus holds display info for one MCP server in the settings view.
 type MCPServerStatus struct {
 	Name      string

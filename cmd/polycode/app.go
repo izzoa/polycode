@@ -1710,6 +1710,11 @@ func startTUI(cfg *config.Config) error {
 		}()
 	})
 
+	// Set up MCP dashboard refresh handler.
+	model.SetMCPDashboardRefreshHandler(func() {
+		go sendMCPDashboardData(program, mcpH, cfg)
+	})
+
 	// Set up MCP registry handlers for the wizard browse step.
 	registryClient := mcp.NewRegistryClient()
 
@@ -1807,6 +1812,78 @@ func sendMCPStatus(program *tea.Program, client *mcp.MCPClient) {
 		})
 	}
 	program.Send(tui.MCPStatusMsg{Servers: servers})
+}
+
+// sendMCPDashboardData builds and sends full dashboard data to the TUI.
+func sendMCPDashboardData(program *tea.Program, mcpH *mcpHolder, cfg *config.Config) {
+	mc := mcpH.get()
+	if mc == nil {
+		program.Send(tui.MCPDashboardDataMsg{})
+		return
+	}
+
+	statuses := mc.Status()
+	tools := mc.Tools()
+	resources := mc.Resources()
+	prompts := mc.Prompts()
+
+	// Count tools/resources/prompts per server.
+	toolsByServer := make(map[string][]string)
+	for _, t := range tools {
+		prefixed := fmt.Sprintf("mcp_%s_%s", t.ServerName, t.Name)
+		toolsByServer[t.ServerName] = append(toolsByServer[t.ServerName], prefixed)
+	}
+	resByServer := make(map[string]int)
+	for _, r := range resources {
+		resByServer[r.ServerName]++
+	}
+	promptsByServer := make(map[string]int)
+	for _, p := range prompts {
+		promptsByServer[p.ServerName]++
+	}
+
+	// Build transport lookup from config.
+	transportByName := make(map[string]string)
+	if cfg != nil {
+		for _, sc := range cfg.MCP.Servers {
+			if sc.URL != "" {
+				transportByName[sc.Name] = "sse"
+			} else {
+				transportByName[sc.Name] = "stdio"
+			}
+		}
+	}
+
+	var servers []tui.MCPDashboardServer
+	for _, s := range statuses {
+		transport := transportByName[s.Name]
+		if transport == "" {
+			transport = "stdio"
+		}
+		ds := tui.MCPDashboardServer{
+			Name:          s.Name,
+			Transport:     transport,
+			Status:        "disconnected",
+			ToolCount:     s.ToolCount,
+			ReadOnly:      mc.IsServerReadOnly(s.Name),
+			Tools:         toolsByServer[s.Name],
+			ResourceCount: resByServer[s.Name],
+			PromptCount:   promptsByServer[s.Name],
+		}
+		if s.Connected {
+			ds.Status = "connected"
+		} else if s.Error != nil {
+			ds.Status = "failed"
+			ds.Error = s.Error.Error()
+		}
+		servers = append(servers, ds)
+	}
+
+	program.Send(tui.MCPDashboardDataMsg{
+		Servers:    servers,
+		TotalTools: len(tools),
+		TotalCalls: mc.CallCount(),
+	})
 }
 
 // wireMCPNotifications attaches the tool-refresh notification handler to an
