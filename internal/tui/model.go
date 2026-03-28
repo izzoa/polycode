@@ -563,6 +563,9 @@ func (m *Model) RestorePanelsFromLastExchange() {
 			copy(m.panels[i].TraceSections, traces)
 		}
 	}
+
+	// Sync the chat view so the viewport has correct content for scrolling.
+	m.syncChatViewContent()
 }
 
 // SetConfigChangeHandler sets the callback invoked when the config changes

@@ -446,8 +446,8 @@ OAuth tokens are automatically refreshed when they expire — no manual re-authe
 | `Shift+Enter` | New line in input |
 | `Tab` | Accept command palette suggestion / toggle provider panels |
 | `↑` / `↓` | Cycle through input history (when input is empty) |
-| `m` | Toggle MCP dashboard (server status, tools, stats) |
-| `p` | Toggle consensus provenance panel |
+| `m` (tab bar) | Toggle MCP dashboard (server status, tools, stats) |
+| `p` (tab bar) | Toggle consensus provenance panel |
 | `Ctrl+S` | Open settings |
 | `?` | Show help overlay |
 | `Ctrl+C` | Quit |

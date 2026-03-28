@@ -50,29 +50,7 @@ func (m Model) renderChat() string {
 
 	// Main content area — depends on active tab
 	if m.activeTab <= 0 {
-		// Consensus tab (or mode selector — show consensus content)
-		chatContent := m.buildChatLog()
-		if m.querying {
-			if m.consensusRendered != "" {
-				chatContent += m.consensusRendered
-			} else if m.consensusContent.Len() > 0 {
-				// First chunks before initial render throttle fires
-				chatContent += m.consensusContent.String()
-			} else {
-				chatContent += "\n" + m.spinner.View() + " Thinking..."
-			}
-		}
-		if m.lastError != "" && !m.querying {
-			errStyle := lipgloss.NewStyle().
-				Foreground(lipgloss.Color("196")).
-				Bold(true)
-			chatContent += "\n\n" + errStyle.Render("Error: "+m.lastError)
-		}
-		m.chatView.SetContent(chatContent)
-		// Only auto-scroll to bottom during active queries (not when user is reading)
-		if m.querying {
-			m.chatView.GotoBottom()
-		}
+		// Content is set in Update() via syncChatViewContent() — View() just renders.
 		if len(m.history) > 0 || m.querying {
 			sections = append(sections, m.renderChatPanel())
 		}
@@ -381,11 +359,11 @@ func (m Model) renderHelp() string {
 		{"/help", "Toggle this help overlay"},
 		{"/exit", "Quit polycode"},
 		{"Tab", "Accept slash completion"},
-		{"↑ (input empty)", "Focus tab bar for ←/→ navigation"},
+		{"↑ (input empty)", "Focus tab bar for ←/→ navigation + shortcuts"},
 		{"↓ / Enter / Esc", "Return focus to input"},
-		{"m", "Toggle MCP dashboard (when input empty)"},
-		{"p", "Toggle provenance (when input empty)"},
-		{"?", "Toggle help (when input empty)"},
+		{"m (tab bar)", "Toggle MCP dashboard"},
+		{"p (tab bar)", "Toggle consensus provenance panel"},
+		{"? (tab bar)", "Toggle this help overlay"},
 		{"Enter", "Submit prompt"},
 		{"PgUp / PgDn", "Scroll chat history"},
 		{"Ctrl+U / Ctrl+D", "Half-page scroll"},

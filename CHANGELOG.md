@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.20.4] - 2026-03-28
+
+### Fixed
+- **Chat viewport scrolling**: Mouse scroll and PgUp/PgDn now work correctly on long consensus responses. Root cause: `SetContent()` was called inside `View()` (value receiver), so the viewport's internal scroll state was always stale. Moved content sync to `Update()` via `syncChatViewContent()`.
+- **Single-char shortcut interception**: Typing `m`, `p`, or `?` as the first character in the textarea no longer triggers shortcut overlays. These shortcuts now only activate when the **tab bar is focused** (press `↑` first), so normal typing is never intercepted.
+- **MCP dashboard focus restore**: Closing the dashboard via `Esc` or `m` now re-focuses the textarea.
+
 ## [1.20.3] - 2026-03-28
 
 ### Fixed

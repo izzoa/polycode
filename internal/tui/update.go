@@ -300,9 +300,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Help overlay toggle — only when textarea is empty (so ? can be typed)
+		// Help overlay toggle — in chat mode, only when tab bar is focused
 		if msg.String() == "?" && m.mode != viewAddProvider && m.mode != viewEditProvider {
-			if m.mode != viewChat || strings.TrimSpace(m.textarea.Value()) == "" {
+			if m.mode != viewChat || m.tabBarFocused {
 				m.showHelp = !m.showHelp
 				return m, nil
 			}
@@ -457,8 +457,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.history = append(m.history, exchange)
 		m.currentPrompt = ""
 		m.rebuildChatLogCache()
-		// Update the chat view with full conversation
-		m.chatView.SetContent(m.buildChatLog())
+		m.syncChatViewContent()
 		m.chatView.GotoBottom()
 		return m, nil
 
@@ -535,6 +534,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.consensusView.SetContent(m.consensusRendered)
 		m.consensusView.GotoBottom()
+		m.syncChatViewContent()
 		return m, nil
 
 	case TokenUpdateMsg:
@@ -589,6 +589,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Update viewports (only in chat mode)
 	if m.mode == viewChat {
+		// Sync content before viewport update so scroll calculations are accurate.
+		m.syncChatViewContent()
 		var cmd tea.Cmd
 		m.chatView, cmd = m.chatView.Update(msg)
 		cmds = append(cmds, cmd)
@@ -733,12 +735,12 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.showIndividual = !m.showIndividual
 		return m, nil
 	case "p":
-		if !m.querying && strings.TrimSpace(m.textarea.Value()) == "" {
+		if m.tabBarFocused {
 			m.showProvenance = !m.showProvenance
 			return m, nil
 		}
 	case "m":
-		if strings.TrimSpace(m.textarea.Value()) == "" && len(m.mcpServers) > 0 {
+		if m.tabBarFocused && len(m.mcpServers) > 0 {
 			m.showMCPDashboard = !m.showMCPDashboard
 			if m.showMCPDashboard && m.onMCPDashboardRefresh != nil {
 				m.mcpDashboardCursor = 0
@@ -1250,6 +1252,27 @@ func (m *Model) markPanelsQueried(names []string) {
 		if nameSet[m.panels[i].Name] {
 			m.panels[i].Status = StatusLoading
 		}
+	}
+}
+
+// syncChatViewContent rebuilds the chat view content from history + in-progress
+// state. Must be called from Update() (not View()) so the viewport's internal
+// scroll state stays consistent with its content.
+func (m *Model) syncChatViewContent() {
+	chatContent := m.buildChatLog()
+	if m.querying {
+		if m.consensusRendered != "" {
+			chatContent += m.consensusRendered
+		} else if m.consensusContent.Len() > 0 {
+			chatContent += m.consensusContent.String()
+		}
+	}
+	if m.lastError != "" && !m.querying {
+		chatContent += "\n\n[Error: " + m.lastError + "]"
+	}
+	m.chatView.SetContent(chatContent)
+	if m.querying {
+		m.chatView.GotoBottom()
 	}
 }
 
