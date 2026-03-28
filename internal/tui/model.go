@@ -249,6 +249,8 @@ type Model struct {
 	// MCP state
 	mcpServers        []MCPServerStatus // populated via MCPStatusMsg
 	mcpCallCount      int64             // total MCP tool calls (updated from MCPClient)
+	mcpRegistryResults []MCPRegistryResult // live registry search results for wizard browse
+	mcpRegistryOffline bool               // true if registry was unreachable
 	mcpSettingsCursor int
 	mcpSettingsFocused bool              // true = cursor in MCP section (Tab toggles)
 	mcpConfirmDelete   bool
@@ -258,6 +260,10 @@ type Model struct {
 	mcpWizardStep       mcpWizardStep
 	mcpWizardData       config.MCPServerConfig
 	mcpWizardEnv        map[string]string
+	mcpWizardEnvSecrets map[string]bool   // tracks which env vars are secrets (for masking)
+	mcpWizardEnvOrder   []string          // ordered list of known env var names (required first)
+	mcpWizardEnvIdx     int               // current prompting index; >= len(order) means freeform mode
+	mcpWizardEnvDescs   map[string]string // env var descriptions from registry metadata
 	mcpWizardInput      textinput.Model
 	mcpWizardListCursor int
 	mcpWizardListItems  []string
@@ -302,9 +308,11 @@ type Model struct {
 	onYoloToggle    func(enabled bool)
 	onConfigChanged func(*config.Config)
 	onTestProvider  func(providerName string)
-	onMCP           func(subcommand, args string)
-	onTestMCP       func(cfg config.MCPServerConfig)
-	onReconnectMCP  func(serverName string)
+	onMCP              func(subcommand, args string)
+	onTestMCP          func(cfg config.MCPServerConfig)
+	onReconnectMCP     func(serverName string)
+	onMCPRegistryFetch  func()                                          // triggers async registry fetch for browse step
+	onMCPRegistrySelect func(result MCPRegistryResult) config.MCPServerConfig // maps registry result to config (returns it)
 
 	// Model listing for wizard
 	modelLister func(providerType string) []config.ModelSummary
@@ -438,13 +446,14 @@ func NewModel(providerNames []string, primaryName string, version string) Model 
 			{"/skill list", "List installed skills", ""},
 			{"/skill install <path>", "Install a skill from a directory", ""},
 			{"/skill remove <name>", "Remove an installed skill", ""},
-			{"/mcp", "MCP: list, status, reconnect, tools, resources, prompts, add, remove", ""},
+			{"/mcp", "MCP: list, status, reconnect, tools, resources, prompts, search, add, remove", ""},
 			{"/mcp list", "List MCP servers and their tools", ""},
 			{"/mcp status", "Show MCP server connection status", ""},
 			{"/mcp reconnect [name]", "Reconnect MCP server(s)", ""},
 			{"/mcp tools [server]", "List tools from MCP servers", ""},
 			{"/mcp resources [server]", "List resources from MCP servers", ""},
 			{"/mcp prompts [server]", "List prompts from MCP servers", ""},
+			{"/mcp search <query>", "Search the MCP server registry", ""},
 			{"/mcp add", "Open MCP server wizard", ""},
 			{"/mcp remove <name>", "Remove an MCP server", ""},
 			{"/yolo", "Toggle auto-approve mode", ""},
@@ -542,6 +551,27 @@ func (m *Model) SetTestMCPHandler(handler func(cfg config.MCPServerConfig)) {
 // SetReconnectMCPHandler sets the callback for reconnecting an MCP server.
 func (m *Model) SetReconnectMCPHandler(handler func(serverName string)) {
 	m.onReconnectMCP = handler
+}
+
+// SetMCPRegistryFetchHandler sets the callback for triggering registry fetch.
+func (m *Model) SetMCPRegistryFetchHandler(handler func()) {
+	m.onMCPRegistryFetch = handler
+}
+
+// SetMCPRegistrySelectHandler sets the callback for mapping a registry result to a config.
+// The callback returns a config.MCPServerConfig that the wizard applies directly.
+func (m *Model) SetMCPRegistrySelectHandler(handler func(result MCPRegistryResult) config.MCPServerConfig) {
+	m.onMCPRegistrySelect = handler
+}
+
+// SetMCPWizardFromConfig populates the wizard data from a mapped MCPServerConfig
+// (used when selecting a server from the registry).
+func (m *Model) SetMCPWizardFromConfig(cfg config.MCPServerConfig) {
+	m.mcpWizardData = cfg
+	m.mcpWizardEnv = make(map[string]string)
+	for k, v := range cfg.Env {
+		m.mcpWizardEnv[k] = v
+	}
 }
 
 // SetModelLister sets a callback that returns available models for a

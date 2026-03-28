@@ -345,7 +345,18 @@ func main() {
 		Args:  cobra.MaximumNArgs(1),
 		RunE:  runMCPTest,
 	}
-	mcpCmd.AddCommand(mcpListCmd, mcpAddCmd, mcpRemoveCmd, mcpTestCmd)
+	mcpSearchCmd := &cobra.Command{
+		Use:   "search <query>",
+		Short: "Search the MCP server registry",
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  runMCPSearch,
+	}
+	mcpBrowseCmd := &cobra.Command{
+		Use:   "browse",
+		Short: "Browse and install from the MCP server registry",
+		RunE:  runMCPBrowse,
+	}
+	mcpCmd.AddCommand(mcpListCmd, mcpAddCmd, mcpRemoveCmd, mcpTestCmd, mcpSearchCmd, mcpBrowseCmd)
 	rootCmd.AddCommand(mcpCmd)
 
 	if err := rootCmd.Execute(); err != nil {

@@ -38,6 +38,7 @@ openspec/              → OpenSpec change artifacts (proposals, designs, specs,
 - **Config is the source of truth**: All provider setup flows through `config.Config`. TUI settings and YAML both write to the same config file.
 - **Token tracking**: `tokens.TokenTracker` accumulates per-provider usage. `tokens.MetadataStore` fetches model limits from litellm's JSON database with local cache + TTL.
 - **MCP client**: `mcp.MCPClient` manages connections to external MCP servers. Tool names are prefixed `mcp_{serverName}_{toolName}` and resolved via a lookup map (`toolIndex`) to avoid underscore-parsing ambiguity. Supports stdio (subprocess) and HTTP transports. A single multiplexed reader goroutine per stdio connection routes responses by request ID and dispatches notifications (e.g. `tools/list_changed`). Config changes apply at runtime via `Reconfigure()` without restart.
+- **MCP Registry**: `mcp.RegistryClient` queries `registry.modelcontextprotocol.io/v0/servers` for server discovery. Results are cached in-memory with 15-minute TTL. `ToMCPServerConfig()` maps registry metadata to config (npm→npx, pip/pypi→uvx, oci→docker, remote→URL). The wizard browse step and `/mcp search` both use the registry, falling back to the hardcoded `PopularMCPServers` list when offline.
 
 ## Code Conventions
 

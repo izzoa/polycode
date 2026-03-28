@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
+	"github.com/izzoa/polycode/internal/auth"
 	"github.com/izzoa/polycode/internal/config"
 	"github.com/izzoa/polycode/internal/mcp"
 )
@@ -255,5 +256,186 @@ func runMCPTest(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("  ✓ Connected successfully (%d tools discovered)\n", toolCount)
+	return nil
+}
+
+func runMCPSearch(cmd *cobra.Command, args []string) error {
+	query := strings.Join(args, " ")
+
+	rc := mcp.NewRegistryClient()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	servers, _, err := rc.Search(ctx, query, 20)
+	if err != nil {
+		return fmt.Errorf("registry search failed: %w", err)
+	}
+
+	if len(servers) == 0 {
+		fmt.Printf("No servers found for '%s'.\n", query)
+		return nil
+	}
+
+	fmt.Printf("MCP Registry — %d results for '%s'\n\n", len(servers), query)
+	fmt.Printf("  %-28s %-16s %-30s %s\n", "NAME", "TRANSPORT", "PACKAGE", "DESCRIPTION")
+	fmt.Printf("  %-28s %-16s %-30s %s\n", "----", "---------", "-------", "-----------")
+	for _, s := range servers {
+		fmt.Printf("  %-28s %-16s %-30s %s\n",
+			truncate(s.Name, 26),
+			truncate(s.TransportLabel(), 14),
+			truncate(s.PackageIdentifier(), 28),
+			truncate(s.Description, 40),
+		)
+	}
+	return nil
+}
+
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
+}
+
+func runMCPBrowse(cmd *cobra.Command, args []string) error {
+	// Search query.
+	var query string
+	err := huh.NewInput().
+		Title("Search MCP Registry").
+		Placeholder("e.g., github, database, filesystem").
+		Value(&query).
+		Run()
+	if err != nil || query == "" {
+		return nil // cancelled
+	}
+
+	rc := mcp.NewRegistryClient()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	servers, _, err := rc.Search(ctx, query, 20)
+	if err != nil {
+		return fmt.Errorf("registry search failed: %w", err)
+	}
+
+	if len(servers) == 0 {
+		fmt.Printf("No servers found for '%s'.\n", query)
+		return nil
+	}
+
+	// Build selection list.
+	opts := make([]huh.Option[int], len(servers))
+	for i, s := range servers {
+		desc := s.Description
+		if len(desc) > 60 {
+			desc = desc[:57] + "..."
+		}
+		label := fmt.Sprintf("%-25s  %s", s.Name, desc)
+		opts[i] = huh.NewOption(label, i)
+	}
+
+	var selected int
+	err = huh.NewSelect[int]().
+		Title(fmt.Sprintf("Select server (%d results)", len(servers))).
+		Options(opts...).
+		Value(&selected).
+		Run()
+	if err != nil {
+		return nil // cancelled
+	}
+
+	// Map to config.
+	srv := servers[selected]
+	cfg, envMeta := mcp.ToMCPServerConfig(srv)
+
+	// Show what will be added.
+	// Preflight: load config and check duplicates before prompting user.
+	appCfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+	for _, s := range appCfg.MCP.Servers {
+		if s.Name == cfg.Name {
+			return fmt.Errorf("MCP server %q already exists — use a different name or remove the existing one first", cfg.Name)
+		}
+	}
+
+	fmt.Printf("\nServer: %s\n", srv.Name)
+	fmt.Printf("  Description: %s\n", srv.Description)
+	if cfg.Command != "" {
+		cmdStr := cfg.Command
+		if len(cfg.Args) > 0 {
+			cmdStr += " " + strings.Join(cfg.Args, " ")
+		}
+		fmt.Printf("  Command: %s\n", cmdStr)
+	}
+	if cfg.URL != "" {
+		fmt.Printf("  URL: %s\n", cfg.URL)
+	}
+	if len(cfg.Env) > 0 {
+		envKeys := make([]string, 0, len(cfg.Env))
+		for k := range cfg.Env {
+			envKeys = append(envKeys, k)
+		}
+		fmt.Printf("  Env vars needed: %s\n", strings.Join(envKeys, ", "))
+	}
+
+	// Confirm.
+	var confirm bool
+	err = huh.NewConfirm().
+		Title("Add this server?").
+		Value(&confirm).
+		Run()
+	if err != nil || !confirm {
+		return nil
+	}
+
+	// Build secret lookup from metadata.
+	secretVars := make(map[string]bool)
+	for _, m := range envMeta {
+		if m.IsSecret {
+			secretVars[m.Name] = true
+		}
+	}
+
+	// Prompt for required env var values.
+	if len(cfg.Env) > 0 {
+		store := auth.NewStore()
+		for k := range cfg.Env {
+			var val string
+			input := huh.NewInput().
+				Title(fmt.Sprintf("Value for %s", k)).
+				Value(&val)
+			if secretVars[k] {
+				input = input.EchoMode(huh.EchoModePassword)
+			}
+			err = input.Run()
+			if err != nil {
+				return nil
+			}
+			if secretVars[k] && val != "" {
+				keyringKey := fmt.Sprintf("mcp_%s_%s", cfg.Name, k)
+				if err := store.Set(keyringKey, val); err != nil {
+					return fmt.Errorf("failed to store secret %s: %w", k, err)
+				}
+				cfg.Env[k] = "$KEYRING:" + keyringKey
+			} else {
+				cfg.Env[k] = val
+			}
+		}
+	}
+
+	appCfg.MCP.Servers = append(appCfg.MCP.Servers, cfg)
+	if err := appCfg.Validate(); err != nil {
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
+	if err := appCfg.Save(); err != nil {
+		return fmt.Errorf("saving config: %w", err)
+	}
+
+	fmt.Printf("\nMCP server '%s' added. %d server(s) configured.\n", cfg.Name, len(appCfg.MCP.Servers))
 	return nil
 }

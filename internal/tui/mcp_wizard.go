@@ -4,11 +4,38 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/izzoa/polycode/internal/auth"
 	"github.com/izzoa/polycode/internal/config"
 )
+
+// MCPRegistryEnvMeta holds env var metadata for display in the wizard.
+type MCPRegistryEnvMeta struct {
+	Name        string
+	Description string
+	IsSecret    bool
+	IsRequired  bool
+}
+
+// MCPRegistryResult holds a server from the MCP Registry for the wizard browse step.
+type MCPRegistryResult struct {
+	Name           string
+	Description    string
+	TransportLabel string
+	PackageID      string
+	EnvVars        []MCPRegistryEnvMeta // env var metadata for individual prompting
+	// Full server data for config mapping (passed to app layer).
+	ServerData any // *mcp.RegistryServer — stored as any to avoid import cycle
+}
+
+// MCPRegistryResultsMsg delivers registry search results to the TUI.
+type MCPRegistryResultsMsg struct {
+	Servers []MCPRegistryResult
+	Error   error
+}
 
 // MCPServerStatus holds display info for one MCP server in the settings view.
 type MCPServerStatus struct {
@@ -61,13 +88,19 @@ const (
 	mcpStepConfirm                        // Review and save
 )
 
+// MCPTemplateEnvVar describes an env var in a server template.
+type MCPTemplateEnvVar struct {
+	Name     string
+	IsSecret bool
+}
+
 // MCPServerTemplate defines a pre-configured MCP server for the curated registry.
 type MCPServerTemplate struct {
 	Name        string
 	Description string
 	Command     string
 	Args        []string
-	EnvVars     []string // required env var names
+	EnvVars     []MCPTemplateEnvVar
 	ReadOnly    bool
 	Category    string
 }
@@ -86,7 +119,7 @@ var PopularMCPServers = []MCPServerTemplate{
 		Description: "GitHub API — repos, issues, PRs, search",
 		Command:     "npx",
 		Args:        []string{"-y", "@modelcontextprotocol/server-github"},
-		EnvVars:     []string{"GITHUB_TOKEN"},
+		EnvVars:     []MCPTemplateEnvVar{{Name: "GITHUB_TOKEN", IsSecret: true}},
 		Category:    "dev-tools",
 	},
 	{
@@ -102,7 +135,7 @@ var PopularMCPServers = []MCPServerTemplate{
 		Description: "Web search via Brave Search API",
 		Command:     "npx",
 		Args:        []string{"-y", "@modelcontextprotocol/server-brave-search"},
-		EnvVars:     []string{"BRAVE_API_KEY"},
+		EnvVars:     []MCPTemplateEnvVar{{Name: "BRAVE_API_KEY", IsSecret: true}},
 		ReadOnly:    true,
 		Category:    "search",
 	},
@@ -133,7 +166,7 @@ var PopularMCPServers = []MCPServerTemplate{
 		Description: "Slack workspace integration",
 		Command:     "npx",
 		Args:        []string{"-y", "@modelcontextprotocol/server-slack"},
-		EnvVars:     []string{"SLACK_BOT_TOKEN", "SLACK_TEAM_ID"},
+		EnvVars:     []MCPTemplateEnvVar{{Name: "SLACK_BOT_TOKEN", IsSecret: true}, {Name: "SLACK_TEAM_ID", IsSecret: false}},
 		Category:    "dev-tools",
 	},
 }
@@ -159,6 +192,10 @@ func (m *Model) initMCPWizardForAdd() {
 	m.mcpWizardStep = mcpStepSource
 	m.mcpWizardData = config.MCPServerConfig{}
 	m.mcpWizardEnv = make(map[string]string)
+	m.mcpWizardEnvSecrets = make(map[string]bool)
+	m.mcpWizardEnvOrder = nil
+	m.mcpWizardEnvIdx = -1
+	m.mcpWizardEnvDescs = make(map[string]string)
 	m.mcpWizardEditing = false
 	m.mcpWizardSource = ""
 	m.mcpWizardTesting = false
@@ -178,8 +215,20 @@ func (m *Model) initMCPWizardForEdit(index int) {
 	m.mcpWizardStep = mcpStepTransport // skip source/browse
 	m.mcpWizardData = srv
 	m.mcpWizardEnv = make(map[string]string)
+	m.mcpWizardEnvSecrets = make(map[string]bool)
+	m.mcpWizardEnvOrder = nil
+	m.mcpWizardEnvIdx = -1
+	m.mcpWizardEnvDescs = make(map[string]string)
 	for k, v := range srv.Env {
 		m.mcpWizardEnv[k] = v
+		m.mcpWizardEnvOrder = append(m.mcpWizardEnvOrder, k)
+		// Infer secret-ness from $KEYRING: references.
+		if strings.HasPrefix(v, "$KEYRING:") {
+			m.mcpWizardEnvSecrets[k] = true
+		}
+	}
+	if len(m.mcpWizardEnvOrder) > 0 {
+		m.mcpWizardEnvIdx = 0
 	}
 	m.mcpWizardEditing = true
 	m.mcpWizardEditIndex = index
@@ -259,9 +308,27 @@ func (m Model) renderMCPWizard() string {
 		sections = append(sections, m.renderMCPList()...)
 
 	case mcpStepBrowse:
-		sections = append(sections, "Select a server:")
+		if m.mcpRegistryOffline {
+			sections = append(sections, m.styles.Dimmed.Render("(offline — showing built-in servers)"))
+		} else {
+			sections = append(sections, "Select a server from the MCP Registry:")
+		}
 		sections = append(sections, "")
-		sections = append(sections, m.renderMCPBrowse()...)
+		if len(m.mcpRegistryResults) > 0 {
+			for i, r := range m.mcpRegistryResults {
+				cursor := "    "
+				if i == m.mcpWizardListCursor {
+					cursor = m.styles.Prompt.Render("  > ")
+				}
+				desc := r.Description
+				if len(desc) > 50 {
+					desc = desc[:47] + "..."
+				}
+				sections = append(sections, fmt.Sprintf("%s%-22s %-10s %s", cursor, r.Name, m.styles.Dimmed.Render(r.TransportLabel), desc))
+			}
+		} else {
+			sections = append(sections, m.spinner.View()+" Loading from registry...")
+		}
 
 	case mcpStepTransport:
 		sections = append(sections, "Select transport:")
@@ -294,20 +361,66 @@ func (m Model) renderMCPWizard() string {
 		sections = append(sections, m.mcpWizardInput.View())
 
 	case mcpStepEnv:
-		sections = append(sections, "Environment variables (key=value, Enter to skip):")
-		sections = append(sections, "")
-		if len(m.mcpWizardEnv) > 0 {
-			for k, v := range m.mcpWizardEnv {
-				display := v
-				if len(display) > 20 {
-					display = display[:17] + "..."
+		inKnownVarMode := m.mcpWizardEnvIdx >= 0 && m.mcpWizardEnvIdx < len(m.mcpWizardEnvOrder)
+
+		if inKnownVarMode {
+			// Individual prompting mode — prompt one known var at a time.
+			currentVar := m.mcpWizardEnvOrder[m.mcpWizardEnvIdx]
+			sections = append(sections, fmt.Sprintf("Environment variable %d of %d", m.mcpWizardEnvIdx+1, len(m.mcpWizardEnvOrder)))
+			sections = append(sections, "")
+
+			// Show already-entered vars above.
+			for i := 0; i < m.mcpWizardEnvIdx; i++ {
+				k := m.mcpWizardEnvOrder[i]
+				v := m.mcpWizardEnv[k]
+				if m.mcpWizardEnvSecrets[k] && v != "" {
+					sections = append(sections, fmt.Sprintf("  %s = •••••••• (configured)", k))
+				} else if v != "" {
+					sections = append(sections, fmt.Sprintf("  %s = %s", k, v))
+				} else {
+					sections = append(sections, fmt.Sprintf("  %s = (skipped)", k))
 				}
-				sections = append(sections, fmt.Sprintf("  %s = %s", k, display))
+			}
+			if m.mcpWizardEnvIdx > 0 {
+				sections = append(sections, "")
+			}
+
+			// Current var prompt.
+			label := currentVar
+			if m.mcpWizardEnvSecrets[currentVar] {
+				label += " (secret)"
+			}
+			if desc, ok := m.mcpWizardEnvDescs[currentVar]; ok && desc != "" {
+				label += " — " + desc
+			}
+			sections = append(sections, label+":")
+			sections = append(sections, m.mcpWizardInput.View())
+		} else {
+			// Freeform mode — show all entered vars + freeform input.
+			sections = append(sections, "Environment variables:")
+			sections = append(sections, "")
+			for _, k := range m.mcpWizardEnvOrder {
+				v := m.mcpWizardEnv[k]
+				if m.mcpWizardEnvSecrets[k] && v != "" {
+					sections = append(sections, fmt.Sprintf("  %s = •••••••• (configured)", k))
+				} else if v != "" {
+					sections = append(sections, fmt.Sprintf("  %s = %s", k, v))
+				}
+			}
+			// Also show any extra freeform vars.
+			knownSet := make(map[string]bool)
+			for _, k := range m.mcpWizardEnvOrder {
+				knownSet[k] = true
+			}
+			for k, v := range m.mcpWizardEnv {
+				if !knownSet[k] && v != "" {
+					sections = append(sections, fmt.Sprintf("  %s = %s", k, v))
+				}
 			}
 			sections = append(sections, "")
+			m.mcpWizardInput.Placeholder = "KEY=value (or Enter to continue)"
+			sections = append(sections, m.mcpWizardInput.View())
 		}
-		m.mcpWizardInput.Placeholder = "KEY=value (or Enter to continue)"
-		sections = append(sections, m.mcpWizardInput.View())
 
 	case mcpStepReadOnly:
 		sections = append(sections, "Mark as read-only? (tools skip confirmation)")
@@ -381,49 +494,6 @@ func (m Model) renderMCPList() []string {
 	return lines
 }
 
-// renderMCPBrowse renders the categorized server browser.
-func (m Model) renderMCPBrowse() []string {
-	var lines []string
-	categories := []string{"filesystem", "search", "database", "dev-tools", "ai"}
-	catLabels := map[string]string{
-		"filesystem": "FILESYSTEM",
-		"search":     "SEARCH",
-		"database":   "DATABASE",
-		"dev-tools":  "DEV TOOLS",
-		"ai":         "AI",
-	}
-
-	idx := 0
-	for _, cat := range categories {
-		hasServers := false
-		for _, s := range PopularMCPServers {
-			if s.Category == cat {
-				hasServers = true
-				break
-			}
-		}
-		if !hasServers {
-			continue
-		}
-
-		label := catLabels[cat]
-		lines = append(lines, m.styles.Dimmed.Render("  "+label))
-
-		for _, s := range PopularMCPServers {
-			if s.Category != cat {
-				continue
-			}
-			cursor := "    "
-			if idx == m.mcpWizardListCursor {
-				cursor = m.styles.Prompt.Render("  > ")
-			}
-			lines = append(lines, fmt.Sprintf("%s%-16s %s", cursor, s.Name, m.styles.Dimmed.Render(s.Description)))
-			idx++
-		}
-		lines = append(lines, "")
-	}
-	return lines
-}
 
 // renderMCPSummary renders the confirmation/review step.
 func (m Model) renderMCPSummary() []string {
@@ -473,12 +543,41 @@ func (m Model) updateMCPWizard(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, tea.Quit
 	case "esc":
 		if m.mcpWizardStep == mcpStepSource || (m.mcpWizardEditing && m.mcpWizardStep == mcpStepTransport) {
-			// Cancel wizard — return to settings
 			m.mode = viewSettings
 			m.textarea.Focus()
 			return m, nil
 		}
+		// Env step: navigate backward through individual vars.
+		if m.mcpWizardStep == mcpStepEnv && len(m.mcpWizardEnvOrder) > 0 {
+			if m.mcpWizardEnvIdx > 0 {
+				// Go back to previous known var.
+				m.mcpWizardEnvIdx--
+				m.mcpWizardInput.Reset()
+				currentVar := m.mcpWizardEnvOrder[m.mcpWizardEnvIdx]
+				m.mcpWizardInput.SetValue(m.mcpWizardEnv[currentVar])
+				if m.mcpWizardEnvSecrets[currentVar] {
+					m.mcpWizardInput.EchoMode = textinput.EchoPassword
+				} else {
+					m.mcpWizardInput.EchoMode = textinput.EchoNormal
+				}
+				return m, nil
+			} else if m.mcpWizardEnvIdx >= len(m.mcpWizardEnvOrder) {
+				// In freeform mode — go back to last known var.
+				m.mcpWizardEnvIdx = len(m.mcpWizardEnvOrder) - 1
+				m.mcpWizardInput.Reset()
+				currentVar := m.mcpWizardEnvOrder[m.mcpWizardEnvIdx]
+				m.mcpWizardInput.SetValue(m.mcpWizardEnv[currentVar])
+				if m.mcpWizardEnvSecrets[currentVar] {
+					m.mcpWizardInput.EchoMode = textinput.EchoPassword
+				} else {
+					m.mcpWizardInput.EchoMode = textinput.EchoNormal
+				}
+				return m, nil
+			}
+			// idx == 0: fall through to prevMCPWizardStep
+		}
 		m.prevMCPWizardStep()
+		m.prepareMCPInput()
 		return m, nil
 	}
 
@@ -487,8 +586,12 @@ func (m Model) updateMCPWizard(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.updateMCPWizardList(msg, func(idx int) {
 			if idx == 0 {
 				m.mcpWizardSource = "popular"
-				// Build browse list
 				m.mcpWizardListCursor = 0
+				m.mcpRegistryResults = nil
+				// Trigger async registry fetch.
+				if m.onMCPRegistryFetch != nil {
+					m.onMCPRegistryFetch()
+				}
 			} else {
 				m.mcpWizardSource = "custom"
 			}
@@ -567,10 +670,13 @@ func (m Model) updateMCPWizardList(msg tea.KeyMsg, onSelect func(int)) (Model, t
 	return m, nil
 }
 
-// updateMCPWizardBrowse handles navigation in the curated server browser.
+// updateMCPWizardBrowse handles navigation in the registry browser.
 func (m Model) updateMCPWizardBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 	key := msg.String()
-	count := len(PopularMCPServers)
+	count := len(m.mcpRegistryResults)
+	if count == 0 {
+		return m, nil // still loading
+	}
 	switch key {
 	case "j", "down":
 		if m.mcpWizardListCursor < count-1 {
@@ -582,15 +688,54 @@ func (m Model) updateMCPWizardBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 	case "enter":
 		if m.mcpWizardListCursor < count {
-			tmpl := PopularMCPServers[m.mcpWizardListCursor]
-			m.mcpWizardData.Name = tmpl.Name
-			m.mcpWizardData.Command = tmpl.Command
-			m.mcpWizardData.Args = make([]string, len(tmpl.Args))
-			copy(m.mcpWizardData.Args, tmpl.Args)
-			m.mcpWizardData.ReadOnly = tmpl.ReadOnly
-			// Pre-populate required env vars
-			for _, envKey := range tmpl.EnvVars {
-				m.mcpWizardEnv[envKey] = ""
+			selected := m.mcpRegistryResults[m.mcpWizardListCursor]
+			// Check if this is a hardcoded fallback (ServerData is int index).
+			if idx, ok := selected.ServerData.(int); ok && idx < len(PopularMCPServers) {
+				tmpl := PopularMCPServers[idx]
+				m.mcpWizardData.Name = tmpl.Name
+				m.mcpWizardData.Command = tmpl.Command
+				m.mcpWizardData.Args = make([]string, len(tmpl.Args))
+				copy(m.mcpWizardData.Args, tmpl.Args)
+				m.mcpWizardData.ReadOnly = tmpl.ReadOnly
+				// Clear all env state before applying new selection.
+				m.mcpWizardEnv = make(map[string]string)
+				m.mcpWizardEnvSecrets = make(map[string]bool)
+				m.mcpWizardEnvDescs = make(map[string]string)
+				m.mcpWizardEnvOrder = nil
+				m.mcpWizardEnvIdx = -1
+				for _, ev := range tmpl.EnvVars {
+					m.mcpWizardEnv[ev.Name] = ""
+					m.mcpWizardEnvOrder = append(m.mcpWizardEnvOrder, ev.Name)
+					if ev.IsSecret {
+						m.mcpWizardEnvSecrets[ev.Name] = true
+					}
+				}
+				if len(m.mcpWizardEnvOrder) > 0 {
+					m.mcpWizardEnvIdx = 0
+				}
+			} else if m.onMCPRegistrySelect != nil {
+				// Live registry — map to config and apply directly on this model.
+				cfg := m.onMCPRegistrySelect(selected)
+				m.mcpWizardData = cfg
+				m.mcpWizardEnv = make(map[string]string)
+				m.mcpWizardEnvSecrets = make(map[string]bool)
+				m.mcpWizardEnvOrder = nil
+				m.mcpWizardEnvIdx = -1
+				m.mcpWizardEnvDescs = make(map[string]string)
+				for k, v := range cfg.Env {
+					m.mcpWizardEnv[k] = v
+				}
+				// Build env var order and metadata from registry result.
+				for _, ev := range selected.EnvVars {
+					m.mcpWizardEnvOrder = append(m.mcpWizardEnvOrder, ev.Name)
+					m.mcpWizardEnvDescs[ev.Name] = ev.Description
+					if ev.IsSecret {
+						m.mcpWizardEnvSecrets[ev.Name] = true
+					}
+				}
+				if len(m.mcpWizardEnvOrder) > 0 {
+					m.mcpWizardEnvIdx = 0
+				}
 			}
 		}
 		m.mcpWizardListCursor = 0
@@ -630,8 +775,28 @@ func (m Model) updateMCPWizardInput(msg tea.KeyMsg) (Model, tea.Cmd) {
 			}
 			m.mcpWizardData.URL = val
 		case mcpStepEnv:
+			inKnownVarMode := m.mcpWizardEnvIdx >= 0 && m.mcpWizardEnvIdx < len(m.mcpWizardEnvOrder)
+			if inKnownVarMode {
+				// Individual var mode — save value and advance to next var.
+				currentVar := m.mcpWizardEnvOrder[m.mcpWizardEnvIdx]
+				m.mcpWizardEnv[currentVar] = val
+				m.mcpWizardEnvIdx++
+				m.mcpWizardInput.Reset()
+				// Set EchoMode for next var.
+				if m.mcpWizardEnvIdx < len(m.mcpWizardEnvOrder) {
+					nextVar := m.mcpWizardEnvOrder[m.mcpWizardEnvIdx]
+					if m.mcpWizardEnvSecrets[nextVar] {
+						m.mcpWizardInput.EchoMode = textinput.EchoPassword
+					} else {
+						m.mcpWizardInput.EchoMode = textinput.EchoNormal
+					}
+				} else {
+					m.mcpWizardInput.EchoMode = textinput.EchoNormal
+				}
+				return m, nil // stay on env step
+			}
+			// Freeform mode.
 			if val != "" {
-				// Parse key=value
 				if parts := strings.SplitN(val, "=", 2); len(parts) == 2 {
 					m.mcpWizardEnv[parts[0]] = parts[1]
 					m.mcpWizardInput.Reset()
@@ -688,6 +853,7 @@ func (m *Model) maybeAutoTriggerTest() tea.Cmd {
 // prepareMCPInput pre-fills the text input for the current wizard step.
 func (m *Model) prepareMCPInput() {
 	m.mcpWizardInput.Focus()
+	m.mcpWizardInput.EchoMode = textinput.EchoNormal // default
 	switch m.mcpWizardStep {
 	case mcpStepName:
 		m.mcpWizardInput.SetValue(m.mcpWizardData.Name)
@@ -697,6 +863,17 @@ func (m *Model) prepareMCPInput() {
 		m.mcpWizardInput.SetValue(strings.Join(m.mcpWizardData.Args, " "))
 	case mcpStepURL:
 		m.mcpWizardInput.SetValue(m.mcpWizardData.URL)
+	case mcpStepEnv:
+		// Set EchoMode for the current known var (if in individual mode).
+		if m.mcpWizardEnvIdx >= 0 && m.mcpWizardEnvIdx < len(m.mcpWizardEnvOrder) {
+			currentVar := m.mcpWizardEnvOrder[m.mcpWizardEnvIdx]
+			m.mcpWizardInput.SetValue(m.mcpWizardEnv[currentVar])
+			if m.mcpWizardEnvSecrets[currentVar] {
+				m.mcpWizardInput.EchoMode = textinput.EchoPassword
+			}
+		} else {
+			m.mcpWizardInput.SetValue("")
+		}
 	default:
 		m.mcpWizardInput.SetValue("")
 	}
@@ -708,22 +885,50 @@ func (m Model) saveMCPWizard() (Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Apply env vars to config
+	// Apply env vars to config — store secrets in keyring.
 	if len(m.mcpWizardEnv) > 0 {
 		m.mcpWizardData.Env = make(map[string]string)
+		store := auth.NewStore()
 		for k, v := range m.mcpWizardEnv {
-			m.mcpWizardData.Env[k] = v
+			if m.mcpWizardEnvSecrets[k] && v != "" {
+				keyringKey := fmt.Sprintf("mcp_%s_%s", m.mcpWizardData.Name, k)
+				if err := store.Set(keyringKey, v); err != nil {
+					m.settingsMsg = m.styles.StatusUnhealthy.Render(
+						fmt.Sprintf("Failed to store secret %s: %v", k, err))
+					m.mode = viewSettings
+					m.textarea.Focus()
+					return m, nil
+				}
+				m.mcpWizardData.Env[k] = "$KEYRING:" + keyringKey
+			} else {
+				m.mcpWizardData.Env[k] = v
+			}
 		}
 	}
 
 	if m.mcpWizardEditing {
-		// Update existing server
 		if m.mcpWizardEditIndex < len(m.cfg.MCP.Servers) {
 			m.cfg.MCP.Servers[m.mcpWizardEditIndex] = m.mcpWizardData
 		}
 	} else {
-		// Add new server
+		// Check for duplicate names before adding.
+		for _, s := range m.cfg.MCP.Servers {
+			if s.Name == m.mcpWizardData.Name {
+				m.settingsMsg = m.styles.StatusUnhealthy.Render(
+					fmt.Sprintf("MCP server '%s' already exists", m.mcpWizardData.Name))
+				m.mode = viewSettings
+				m.textarea.Focus()
+				return m, nil
+			}
+		}
 		m.cfg.MCP.Servers = append(m.cfg.MCP.Servers, m.mcpWizardData)
+	}
+
+	if err := m.cfg.Validate(); err != nil {
+		m.settingsMsg = m.styles.StatusUnhealthy.Render("Invalid config: " + err.Error())
+		m.mode = viewSettings
+		m.textarea.Focus()
+		return m, nil
 	}
 
 	if err := m.cfg.Save(); err != nil {

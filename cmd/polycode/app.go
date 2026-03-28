@@ -788,9 +788,47 @@ func startTUI(cfg *config.Config) error {
 				}
 				program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nRemoved and disconnected MCP server '%s'.\n", serverName), Done: true})
 
+			case "search":
+				query := strings.TrimSpace(args)
+				if query == "" {
+					program.Send(tui.ConsensusChunkMsg{Delta: "\nUsage: /mcp search <query>\n", Done: true})
+					return
+				}
+				rc := mcp.NewRegistryClient()
+				sctx, scancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer scancel()
+				servers, _, err := rc.Search(sctx, query, 20)
+				if err != nil {
+					program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nRegistry search failed: %v\n", err), Done: true})
+					return
+				}
+				if len(servers) == 0 {
+					program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nNo servers found for '%s'.\n", query), Done: true})
+					return
+				}
+				var sb strings.Builder
+				sb.WriteString(fmt.Sprintf("\nMCP Registry — %d results for '%s'\n\n", len(servers), query))
+				for _, s := range servers {
+					name := s.Name
+					if len(name) > 28 {
+						name = name[:25] + "..."
+					}
+					desc := s.Description
+					if len(desc) > 45 {
+						desc = desc[:42] + "..."
+					}
+					transport := s.TransportLabel()
+					if len(transport) > 12 {
+						transport = transport[:12]
+					}
+					sb.WriteString(fmt.Sprintf("  %-28s  %-12s  %s\n", name, transport, desc))
+				}
+				sb.WriteString("\nUse /mcp add or polycode mcp browse to install a server.\n")
+				program.Send(tui.ConsensusChunkMsg{Delta: sb.String(), Done: true})
+
 			default:
 				program.Send(tui.ConsensusChunkMsg{
-					Delta: "\nUsage: /mcp [list|status|reconnect [name]|tools [server]|resources [server]|prompts [server]|add|remove <name>]\n",
+					Delta: "\nUsage: /mcp [list|status|reconnect|tools|resources|prompts|search|add|remove]\n",
 					Done:  true,
 				})
 			}
@@ -1670,6 +1708,52 @@ func startTUI(cfg *config.Config) error {
 			_ = mc.Reconnect(ctx, serverName)
 			sendMCPStatus(program, mc)
 		}()
+	})
+
+	// Set up MCP registry handlers for the wizard browse step.
+	registryClient := mcp.NewRegistryClient()
+
+	model.SetMCPRegistryFetchHandler(func() {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			servers, _, err := registryClient.Search(ctx, "", 50)
+			if err != nil {
+				program.Send(tui.MCPRegistryResultsMsg{Error: err})
+				return
+			}
+			var results []tui.MCPRegistryResult
+			for i := range servers {
+				r := tui.MCPRegistryResult{
+					Name:           servers[i].Name,
+					Description:    servers[i].Description,
+					TransportLabel: servers[i].TransportLabel(),
+					PackageID:      servers[i].PackageIdentifier(),
+					ServerData:     &servers[i],
+				}
+				// Attach env var metadata for individual prompting.
+				if len(servers[i].Packages) > 0 {
+					for _, ev := range servers[i].Packages[0].EnvVars {
+						r.EnvVars = append(r.EnvVars, tui.MCPRegistryEnvMeta{
+							Name:        ev.Name,
+							Description: ev.Description,
+							IsSecret:    ev.IsSecret,
+							IsRequired:  ev.IsRequired,
+						})
+					}
+				}
+				results = append(results, r)
+			}
+			program.Send(tui.MCPRegistryResultsMsg{Servers: results})
+		}()
+	})
+
+	model.SetMCPRegistrySelectHandler(func(result tui.MCPRegistryResult) config.MCPServerConfig {
+		if srv, ok := result.ServerData.(*mcp.RegistryServer); ok {
+			cfg, _ := mcp.ToMCPServerConfig(*srv)
+			return cfg
+		}
+		return config.MCPServerConfig{Name: result.Name}
 	})
 
 	// Create the Bubble Tea program AFTER all handlers are wired,

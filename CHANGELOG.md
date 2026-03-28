@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-03-28
+
+### Added
+- **MCP Registry integration**: Live server discovery from the official MCP Registry (`registry.modelcontextprotocol.io`). Browse hundreds of servers with search, pagination, and 15-minute cache. Replaces the hardcoded 8-server list with a live registry, falling back offline.
+- **`polycode mcp search <query>`**: Search the MCP Registry from the CLI. Table output with name, transport, package, and description.
+- **`polycode mcp browse`**: Interactive CLI browser — search the registry, select a server, auto-populate config, confirm and save.
+- **`/mcp search <query>` slash command**: Search the registry from within the TUI chat.
+- **Secret env var handling**: Env vars marked as secrets (from registry metadata or templates) are prompted with masked/password input in both CLI and TUI. Secret values stored in keyring via `auth.Store` with `$KEYRING:` references in config.yaml.
+- **Individual env var prompting**: Known env vars from registry/templates are prompted one at a time with name, description, and "(secret)" labels. Secret vars use password masking. Previously-entered values shown above current prompt. Freeform KEY=value input available after known vars.
+- **Registry server config mapping**: npm→`npx -y`, pip/pypi→`uvx`, oci→`docker run --rm -i`, remote→URL. Env vars pre-populated with descriptions.
+
+### Fixed
+- **Wizard saves now validated**: `saveMCPWizard` runs `Config.Validate()` and checks for duplicate server names before saving.
+- **Wizard Esc resets input state**: Back-navigation now calls `prepareMCPInput()` to reset values and EchoMode.
+- **Template browse clears stale env state**: Selecting a different server clears prior env vars, secrets, and descriptions.
+- **Keyring write errors surfaced**: CLI and TUI now fail the save flow with a clear message if `auth.Store.Set()` fails.
+- **Edit mode infers secrets from $KEYRING:** Editing an existing server rebuilds env order and marks `$KEYRING:` vars as secrets.
+
 ## [1.19.3] - 2026-03-27
 
 ### Added

@@ -194,6 +194,8 @@ Models without reasoning support silently ignore the parameter.
 | `polycode export [--format md\|json]` | Export session |
 | `polycode import <file>` | Import session |
 | `polycode mcp list\|add\|remove\|test` | Manage MCP servers |
+| `polycode mcp search <query>` | Search the MCP server registry |
+| `polycode mcp browse` | Browse registry and install a server interactively |
 | `polycode skill list\|install\|remove` | Manage skills |
 | `polycode session list\|show\|delete` | Manage saved sessions |
 | `polycode auth login\|logout\|status` | Manage credentials |
@@ -273,7 +275,7 @@ Type `/` to open the command palette, or type commands directly:
 | `/name <name>` | Name the current session |
 | `/memory` | View repo memory |
 | `/skill [list\|install\|remove]` | Manage installed skills/plugins |
-| `/mcp [list\|status\|reconnect\|tools\|resources\|prompts\|add\|remove]` | Manage MCP servers |
+| `/mcp [list\|status\|reconnect\|tools\|resources\|prompts\|search\|add\|remove]` | Manage MCP servers |
 | `/settings` | Open provider settings (+ MCP servers with Tab) |
 | `/yolo` | Toggle auto-approve for all tool actions |
 | `/exit` | Quit polycode |

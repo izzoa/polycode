@@ -201,6 +201,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mcpCallCount = msg.Count
 		return m, nil
 
+	case MCPRegistryResultsMsg:
+		if msg.Error != nil {
+			m.mcpRegistryOffline = true
+			// Fall back to hardcoded list — convert PopularMCPServers to results.
+			m.mcpRegistryResults = nil
+			for i, s := range PopularMCPServers {
+				m.mcpRegistryResults = append(m.mcpRegistryResults, MCPRegistryResult{
+					Name:           s.Name,
+					Description:    s.Description,
+					TransportLabel: "npm/stdio",
+					PackageID:      s.Command + " " + strings.Join(s.Args, " "),
+					ServerData:     i, // index into PopularMCPServers
+				})
+			}
+		} else {
+			m.mcpRegistryOffline = false
+			m.mcpRegistryResults = msg.Servers
+		}
+		// Reset browse cursor.
+		m.mcpWizardListCursor = 0
+		return m, nil
+
 	case MCPToolsChangedMsg:
 		// Update tool count for the changed server in mcpServers.
 		for i, s := range m.mcpServers {
