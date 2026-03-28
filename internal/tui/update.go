@@ -1140,6 +1140,12 @@ func (m Model) updateMCPDashboard(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "esc", "m":
 		m.showMCPDashboard = false
 		return m, nil
+	case "/":
+		// Close dashboard and pass `/` to textarea for slash commands.
+		m.showMCPDashboard = false
+		m.textarea.SetValue("/")
+		m.textarea.Focus()
+		return m, nil
 	case "j", "down":
 		if m.mcpDashboardCursor < serverCount-1 {
 			m.mcpDashboardCursor++

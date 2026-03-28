@@ -349,7 +349,7 @@ func (m Model) renderMCPDashboard() string {
 
 	// Action hints.
 	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	sections = append(sections, hintStyle.Render("j/k:navigate  r:reconnect  t:test  /settings:manage  Esc:close"))
+	sections = append(sections, hintStyle.Render("j/k:navigate  r:reconnect  t:test  /:command  m/Esc:close"))
 
 	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
 	return m.styles.App.Width(m.width).Render(content)

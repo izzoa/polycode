@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.20.2] - 2026-03-28
+
+### Fixed
+- **MCP dashboard `/` key**: Typing `/` in the dashboard now closes it and pre-fills the textarea with `/` so slash commands can be entered immediately.
+- **Settings focus indicators**: Provider and MCP sections now show `▸` arrow on the active section title, making it clear which section is focused and that Tab switches between them.
+
 ## [1.20.1] - 2026-03-28
 
 ### Added

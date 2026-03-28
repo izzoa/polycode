@@ -12,8 +12,12 @@ import (
 func (m Model) renderSettings() string {
 	var sections []string
 
-	// Title
-	title := m.styles.Title.Render("Settings — Provider Management")
+	// Title — show focus indicator for active section
+	providerTitleText := "Providers"
+	if !m.mcpSettingsFocused {
+		providerTitleText = "▸ Providers"
+	}
+	title := m.styles.Title.Render(providerTitleText)
 	sections = append(sections, title)
 	sections = append(sections, "")
 
@@ -73,7 +77,11 @@ func (m Model) renderSettings() string {
 
 	// MCP Servers section
 	sections = append(sections, "")
-	mcpTitle := m.styles.Title.Render("MCP Servers")
+	mcpTitleText := "MCP Servers"
+	if m.mcpSettingsFocused {
+		mcpTitleText = "▸ MCP Servers"
+	}
+	mcpTitle := m.styles.Title.Render(mcpTitleText)
 	sections = append(sections, mcpTitle)
 
 	mcpServerCount := 0
