@@ -392,6 +392,19 @@ mcp:
 | `read_only` | No | Skip confirmation for this server's tools (default `false`) |
 | `timeout` | No | Per-call timeout in seconds (default `30`) |
 
+### How MCP tools are distributed across providers
+
+MCP tools follow a **split allocation** based on safety:
+
+- **Primary model** (the consensus synthesizer) gets **all** MCP tools — both read-only and mutating. Mutating tool calls go through the confirmation gate (permission policies, yolo mode, or user prompt). This is the model that calls tools during synthesis and tool-loop execution.
+
+- **Fan-out providers** (non-primary models queried in parallel) get only **read-only** MCP tools. A tool is read-only if the server is configured with `read_only: true` or the tool has `readOnlyHint` in its MCP annotation. This lets secondary models safely query databases, read files, or search via MCP during the fan-out phase without side effects.
+
+The consensus flow:
+1. **Fan-out** — all providers query in parallel, each with read-only MCP tools available
+2. **Collect** — responses gathered from all providers
+3. **Synthesize** — primary model gets the full tool set (including mutating MCP tools) and can call them during synthesis/tool loops
+
 ---
 
 ## Authentication
