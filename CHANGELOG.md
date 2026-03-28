@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.20.3] - 2026-03-28
+
+### Fixed
+- **Session resume restores all provider panels**: Previously, only the consensus response was visible after resuming a saved session. Now individual provider responses, traces, and status are restored into provider panels so tabbing to any provider shows their actual output.
+- **MCP dashboard focus restore**: Closing the dashboard via `Esc` or `m` now properly re-focuses the textarea so navigation and typing work immediately.
+
 ## [1.20.2] - 2026-03-28
 
 ### Fixed

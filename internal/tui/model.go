@@ -531,6 +531,40 @@ func (m *Model) AppendHistory(ex Exchange) {
 	m.rebuildChatLogCache()
 }
 
+// RestorePanelsFromLastExchange populates provider panels with content from
+// the most recent exchange. Called after session restore so individual
+// provider responses are visible in the tab bar, not just consensus.
+func (m *Model) RestorePanelsFromLastExchange() {
+	if len(m.history) == 0 {
+		return
+	}
+	last := m.history[len(m.history)-1]
+
+	// Restore consensus view.
+	if last.ConsensusResponse != "" {
+		m.consensusContent.Reset()
+		m.consensusContent.WriteString(last.ConsensusResponse)
+		m.consensusView.SetContent(last.ConsensusResponse)
+		m.consensusActive = true
+	}
+
+	// Restore individual provider panels.
+	for i := range m.panels {
+		name := m.panels[i].Name
+		if content, ok := last.IndividualResponse[name]; ok && content != "" {
+			m.panels[i].Content.Reset()
+			m.panels[i].Content.WriteString(content)
+			m.panels[i].Viewport.SetContent(content)
+			m.panels[i].Status = StatusDone
+		}
+		// Restore trace sections if available.
+		if traces, ok := last.ProviderTraces[name]; ok {
+			m.panels[i].TraceSections = make([]TraceSection, len(traces))
+			copy(m.panels[i].TraceSections, traces)
+		}
+	}
+}
+
 // SetConfigChangeHandler sets the callback invoked when the config changes
 // from the settings screen (add/edit/delete provider). The app layer uses
 // this to rebuild the registry and pipeline.

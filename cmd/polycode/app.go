@@ -292,6 +292,9 @@ func startTUI(cfg *config.Config) error {
 			}
 			model.AppendHistory(tuiEx)
 		}
+		// Populate provider panels with the last exchange's content
+		// so individual responses are visible on resume, not just consensus.
+		model.RestorePanelsFromLastExchange()
 	}
 	model.SetConfig(cfg)
 
