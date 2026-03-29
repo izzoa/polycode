@@ -13,21 +13,23 @@ type Usage struct {
 
 // ProviderUsage holds the accumulated usage and limit for one provider.
 type ProviderUsage struct {
-	ProviderID   string
-	Model        string
-	InputTokens  int
-	OutputTokens int
-	Limit        int     // 0 means unlimited
-	Cost         float64 // accumulated estimated cost in USD (0 if pricing unavailable)
+	ProviderID       string
+	Model            string
+	InputTokens      int // accumulated across all turns (for display)
+	OutputTokens     int // accumulated across all turns (for display)
+	LastInputTokens  int // most recent request's input tokens (for context % calculation)
+	Limit            int     // 0 means unlimited
+	Cost             float64 // accumulated estimated cost in USD (0 if pricing unavailable)
 }
 
-// Percent returns the input token usage as a percentage of the limit.
+// Percent returns the context window usage as a percentage of the limit,
+// based on the most recent request's input tokens (not accumulated total).
 // Returns 0 if the limit is unlimited (0).
 func (u ProviderUsage) Percent() float64 {
 	if u.Limit == 0 {
 		return 0
 	}
-	return float64(u.InputTokens) / float64(u.Limit) * 100
+	return float64(u.LastInputTokens) / float64(u.Limit) * 100
 }
 
 // CostFunc computes the estimated USD cost for given token counts.
@@ -62,6 +64,20 @@ func NewTracker(providerModels map[string]string, providerLimits map[string]int)
 	return t
 }
 
+// Reset clears all accumulated token usage and cost for every provider,
+// preserving the provider list, models, limits, and cost function.
+func (t *TokenTracker) Reset() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for id, u := range t.usage {
+		t.usage[id] = &ProviderUsage{
+			ProviderID: u.ProviderID,
+			Model:      u.Model,
+			Limit:      u.Limit,
+		}
+	}
+}
+
 // SetCostFunc sets an optional cost estimation function.
 func (t *TokenTracker) SetCostFunc(fn CostFunc) {
 	t.mu.Lock()
@@ -87,6 +103,7 @@ func (t *TokenTracker) Add(providerID string, u Usage) {
 	}
 	pu.InputTokens += u.InputTokens
 	pu.OutputTokens += u.OutputTokens
+	pu.LastInputTokens = u.InputTokens // track most recent for context %
 	if t.costFn != nil {
 		model := t.models[providerID]
 		ptype := t.providerTypes[providerID]
@@ -149,7 +166,7 @@ func (t *TokenTracker) WouldExceedLimit(providerID string) bool {
 	if pu.Limit == 0 {
 		return false
 	}
-	return pu.InputTokens >= pu.Limit
+	return pu.LastInputTokens >= pu.Limit
 }
 
 // FormatTokenCount formats a token count for display.

@@ -7,12 +7,14 @@ import (
 	"log"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/izzoa/polycode/internal/action"
@@ -251,6 +253,13 @@ func startTUI(cfg *config.Config) error {
 	// Create TUI model
 	model := tui.NewModel(names, primary.ID(), version)
 
+	// Initialize file index for @ file references
+	model.InitFileIndex(workDir)
+
+	// Desktop notifications are opt-in (config-driven, not auto-enabled)
+	// to avoid leaking sensitive tool details to the OS notification center.
+	// Users can enable via config or future /notify command.
+
 	// Task 4.1/4.2: Pass model listing closure to the TUI model for wizard use
 	model.SetModelLister(func(providerType string) []config.ModelSummary {
 		if metadataStore == nil {
@@ -259,8 +268,27 @@ func startTUI(cfg *config.Config) error {
 		return metadataStore.ModelsForProvider(providerType)
 	})
 
-	// Auto-resume: load saved session if one exists
-	if savedSession, err := config.LoadSession(); err == nil && savedSession != nil && len(savedSession.Messages) > 0 {
+	// Auto-resume: load saved session if one exists (single load, reused for splash + restore)
+	if savedSession, err := config.LoadSession(); err == nil && savedSession != nil {
+		// Show session info on splash screen
+		if len(savedSession.Exchanges) > 0 {
+			ago := time.Since(savedSession.UpdatedAt)
+			var agoStr string
+			switch {
+			case ago < time.Hour:
+				agoStr = fmt.Sprintf("%dm ago", int(ago.Minutes()))
+			case ago < 24*time.Hour:
+				agoStr = fmt.Sprintf("%dh ago", int(ago.Hours()))
+			default:
+				agoStr = fmt.Sprintf("%dd ago", int(ago.Hours()/24))
+			}
+			model.SetSplashSessionInfo(fmt.Sprintf("Resuming session from %s, %d exchanges", agoStr, len(savedSession.Exchanges)))
+		}
+		// Restore session name if set
+		if savedSession.Name != "" {
+			model.SetSessionName(savedSession.Name)
+		}
+		if len(savedSession.Messages) > 0 {
 		// Restore conversation messages with full tool call data
 		restored := fromSessionMessages(savedSession.Messages)
 		conv.mu.Lock()
@@ -295,6 +323,7 @@ func startTUI(cfg *config.Config) error {
 		// Populate provider panels with the last exchange's content
 		// so individual responses are visible on resume, not just consensus.
 		model.RestorePanelsFromLastExchange()
+		}
 	}
 	model.SetConfig(cfg)
 
@@ -839,6 +868,52 @@ func startTUI(cfg *config.Config) error {
 	})
 
 	// Wire /sessions handler
+	model.SetAutoNameSessionHandler(func(prompt string, gen int) {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			// Truncate prompt for naming to avoid large requests
+			namingInput := prompt
+			if len(namingInput) > 500 {
+				namingInput = namingInput[:500]
+			}
+			namingPrompt := "Summarize this conversation topic in 3-5 words. Reply with only the short name, nothing else:\n\n" + namingInput
+			stream, err := primary.Query(ctx, []provider.Message{
+				{Role: provider.RoleUser, Content: namingPrompt},
+			}, provider.QueryOpts{MaxTokens: 30})
+			if err != nil {
+				return // silently fail
+			}
+			var name string
+			for chunk := range stream {
+				if chunk.Error != nil {
+					return
+				}
+				name += chunk.Delta
+			}
+			name = strings.TrimSpace(name)
+			if name != "" {
+				// Save to session file
+				session, _ := config.LoadSession()
+				if session != nil && !session.UserNamed {
+					session.SetName(name, false)
+					_ = config.SaveSession(session)
+				}
+				program.Send(tui.SessionNameMsg{Name: name, Generation: gen})
+			}
+		}()
+	})
+
+	model.SetSessionPickerRefreshHandler(func() {
+		go func() {
+			sessions, err := config.ListSessions()
+			program.Send(tui.SessionPickerMsg{
+				Sessions: sessions,
+				Error:    err,
+			})
+		}()
+	})
+
 	model.SetSessionsHandler(func(subcommand, args string) {
 		go func() {
 			switch subcommand {
@@ -874,15 +949,65 @@ func startTUI(cfg *config.Config) error {
 				if session == nil {
 					session = &config.Session{}
 				}
-				session.Name = args
+				session.SetName(args, true) // user-named, prevents auto-overwrite
 				if err := config.SaveSession(session); err != nil {
 					program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nError: %v\n", err), Done: true})
 					return
 				}
 				program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nSession named %q.\n", args), Done: true})
+			case "show":
+				if args == "" {
+					program.Send(tui.ConsensusChunkMsg{Delta: "\nUsage: /sessions show <name>\n", Done: true})
+					return
+				}
+				s, _, err := config.LoadSessionByName(args)
+				if err != nil {
+					program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nError: %v\n", err), Done: true})
+					return
+				}
+				// Display session summary
+				var sb strings.Builder
+				fmt.Fprintf(&sb, "\nSession: %s (%d exchanges)\n", args, len(s.Exchanges))
+				for i, ex := range s.Exchanges {
+					prompt := ex.Prompt
+					if len(prompt) > 60 {
+						prompt = prompt[:57] + "..."
+					}
+					fmt.Fprintf(&sb, "  %d. %s\n", i+1, prompt)
+				}
+				program.Send(tui.ConsensusChunkMsg{Delta: sb.String(), Done: true})
+			case "rename":
+				// Rename any session by name (not just current)
+				parts := strings.SplitN(args, " ", 2)
+				if len(parts) < 2 {
+					program.Send(tui.ConsensusChunkMsg{Delta: "\nUsage: /sessions rename <oldname> <newname>\n", Done: true})
+					return
+				}
+				oldName, newName := parts[0], strings.TrimSpace(parts[1])
+				s, path, err := config.LoadSessionByName(oldName)
+				if err != nil {
+					program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nError: %v\n", err), Done: true})
+					return
+				}
+				s.Name = newName
+				data, _ := json.MarshalIndent(s, "", "  ")
+				if err := os.WriteFile(path, data, 0600); err != nil {
+					program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nError saving: %v\n", err), Done: true})
+					return
+				}
+				program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nRenamed %q → %q.\n", oldName, newName), Done: true})
+				// Refresh picker if open
+				sessions, _ := config.ListSessions()
+				program.Send(tui.SessionPickerMsg{Sessions: sessions})
 			case "delete":
 				if args == "" {
 					program.Send(tui.ConsensusChunkMsg{Delta: "\nUsage: /sessions delete <name>\n", Done: true})
+					return
+				}
+				// Guard: prevent deleting the current session
+				currentSession, _ := config.LoadSession()
+				if currentSession != nil && currentSession.Name == args {
+					program.Send(tui.ConsensusChunkMsg{Delta: "\nCannot delete the current session.\n", Done: true})
 					return
 				}
 				if err := config.DeleteSessionByName(args); err != nil {
@@ -890,8 +1015,11 @@ func startTUI(cfg *config.Config) error {
 					return
 				}
 				program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nSession %q deleted.\n", args), Done: true})
+				// Refresh picker if open
+				sessions, _ := config.ListSessions()
+				program.Send(tui.SessionPickerMsg{Sessions: sessions})
 			default:
-				program.Send(tui.ConsensusChunkMsg{Delta: "\nUsage: /sessions [list|delete <name>]\n       /name <session-name>\n", Done: true})
+				program.Send(tui.ConsensusChunkMsg{Delta: "\nUsage: /sessions [list|show|delete|rename]\n       /name <session-name>\n", Done: true})
 			}
 		}()
 	})
@@ -915,8 +1043,104 @@ func startTUI(cfg *config.Config) error {
 
 	// Track yolo mode for auto-approve (atomic for goroutine safety)
 	var yoloEnabled atomic.Bool
+	// Git-backed undo/redo
+	var undoTagCounter int
+	isGitRepo := func() bool {
+		cmd := exec.Command("git", "rev-parse", "--git-dir")
+		cmd.Dir = workDir
+		return cmd.Run() == nil
+	}()
+
+	model.SetUndoHandler(func() {
+		go func() {
+			if !isGitRepo {
+				program.Send(tui.UndoAppliedMsg{Error: fmt.Errorf("not a git repository")})
+				return
+			}
+			// Restore files to state before the last mutating tool call.
+			// Uses git checkout to restore all tracked files from the snapshot commit.
+			// First: check if there's a polycode undo tag to restore from.
+			cmd := exec.Command("git", "diff", "--quiet")
+			cmd.Dir = workDir
+			if cmd.Run() == nil {
+				// Working tree is clean — nothing to undo
+				program.Send(tui.UndoAppliedMsg{Error: fmt.Errorf("working tree is clean, nothing to undo")})
+				return
+			}
+			// Revert all tracked file changes
+			cmd = exec.Command("git", "checkout", "--", ".")
+			cmd.Dir = workDir
+			if err := cmd.Run(); err != nil {
+				program.Send(tui.UndoAppliedMsg{Error: fmt.Errorf("git checkout: %w", err)})
+				return
+			}
+			program.Send(tui.UndoAppliedMsg{Description: "file changes reverted"})
+		}()
+	})
+
+	model.SetRedoHandler(func() {
+		go func() {
+			program.Send(tui.UndoAppliedMsg{
+				Error:  fmt.Errorf("redo not yet supported"),
+				IsRedo: true,
+			})
+		}()
+	})
+
+	// Snapshot helper: creates a lightweight git snapshot before mutating tools.
+	// Records the current state so undo can restore from it.
+	createUndoSnapshot := func(description string) {
+		if !isGitRepo {
+			return
+		}
+		undoTagCounter++
+		// Stage and commit current state as a checkpoint
+		addCmd := exec.Command("git", "add", "-A")
+		addCmd.Dir = workDir
+		_ = addCmd.Run()
+
+		tag := fmt.Sprintf("polycode-undo-%d", undoTagCounter)
+		commitCmd := exec.Command("git", "commit", "--allow-empty", "-m",
+			fmt.Sprintf("polycode checkpoint: %s", description))
+		commitCmd.Dir = workDir
+		if err := commitCmd.Run(); err == nil {
+			// Tag the checkpoint so we can find it later
+			tagCmd := exec.Command("git", "tag", "-f", tag)
+			tagCmd.Dir = workDir
+			_ = tagCmd.Run()
+
+			program.Send(tui.UndoSnapshotMsg{
+				Snapshot: tui.UndoSnapshot{
+					Tag:         tag,
+					Description: description,
+				},
+			})
+		}
+	}
 	model.SetYoloToggleHandler(func(enabled bool) {
 		yoloEnabled.Store(enabled)
+	})
+
+	// Set up shell context injection handler (! prefix)
+	model.SetShellContextHandler(func(command string) {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, "sh", "-c", command)
+			cmd.Dir = workDir
+			out, err := cmd.CombinedOutput()
+			// Cap output to 50KB to avoid blowing up context
+			const maxOutput = 50 * 1024
+			output := string(out)
+			if len(output) > maxOutput {
+				output = output[:maxOutput] + "\n... (output truncated at 50KB)"
+			}
+			program.Send(tui.ShellContextMsg{
+				Command: command,
+				Output:  output,
+				Error:   err,
+			})
+		}()
 	})
 
 	// Set up clear handler to reset conversation state and delete saved session
@@ -924,6 +1148,11 @@ func startTUI(cfg *config.Config) error {
 		conv.mu.Lock()
 		conv.messages = []provider.Message{systemPrompt}
 		conv.mu.Unlock()
+		// Reset token tracker for all providers so context checks start fresh
+		tracker.Reset()
+		// NOTE: Do NOT call program.Send() here — this runs synchronously inside
+		// Update(), so Send() would deadlock the Bubble Tea event loop.
+		// Token display is cleared by the TUI's /clear handler directly.
 		_ = config.ClearSession()
 	})
 
@@ -935,6 +1164,39 @@ func startTUI(cfg *config.Config) error {
 			}
 		}
 		program.Send(tui.ConsensusChunkMsg{Delta: "\n*Session saved.*\n", Done: true})
+	})
+
+	model.SetExportMarkdownHandler(func() {
+		go func() {
+			session, _ := config.LoadSession()
+			if session == nil {
+				program.Send(tui.ConsensusChunkMsg{Delta: "\n*No session to export.*\n", Done: true})
+				return
+			}
+			md := config.ExportSessionMarkdown(session)
+			path := "polycode-export.md"
+			if err := os.WriteFile(path, []byte(md), 0600); err != nil {
+				program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\n*Export failed: %v*\n", err), Done: true})
+				return
+			}
+			program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\n*Session exported to %s*\n", path), Done: true})
+		}()
+	})
+
+	model.SetShareSessionHandler(func() {
+		go func() {
+			session, _ := config.LoadSession()
+			if session == nil {
+				program.Send(tui.ConsensusChunkMsg{Delta: "\n*No session to share.*\n", Done: true})
+				return
+			}
+			md := config.ExportSessionMarkdown(session)
+			if err := clipboard.WriteAll(md); err != nil {
+				program.Send(tui.ConsensusChunkMsg{Delta: "\n*Clipboard unavailable.*\n", Done: true})
+				return
+			}
+			program.Send(tui.ConsensusChunkMsg{Delta: "\n*Session copied to clipboard as markdown.*\n", Done: true})
+		}()
 	})
 
 	model.SetExportHandler(func(path string) {
@@ -1011,9 +1273,8 @@ func startTUI(cfg *config.Config) error {
 				ReasoningEffort: reasoningEffort,
 			}
 
-			// Query timeout: fan-out tool loops run until the model stops or
-			// the timeout expires (5 min for tools). Add synthesis overhead.
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute+30*time.Second)
+			// No timeout — providers run until they complete naturally.
+			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
 			// Re-select providers per query (adaptive routing)
@@ -1352,50 +1613,89 @@ func startTUI(cfg *config.Config) error {
 				// Build confirmation callback that consults permission
 				// policies, then falls back to TUI confirmation or yolo mode.
 				// The executor passes the actual tool name for each call.
-				confirmFunc := action.ConfirmFunc(func(toolName, description string) bool {
+				confirmFunc := action.ConfirmFunc(func(toolName, description string) (bool, *string) {
+					now := time.Now()
+					// Snapshot before mutating tools for undo support
+					mutating := toolName == "file_write" || toolName == "file_edit" ||
+						toolName == "file_delete" || toolName == "file_rename" || toolName == "shell_exec"
+
 					// Check permission policy for this specific tool
 					policy := policyMgr.Check(toolName)
 					switch policy {
 					case permissions.PolicyAllow:
+						if mutating {
+							createUndoSnapshot(description)
+						}
 						program.Send(tui.ToolCallMsg{
 							ToolName:    toolName,
 							Description: "Policy-approved: " + description,
+							StartTime:   now,
 						})
-						return true
+						return true, nil
 					case permissions.PolicyDeny:
 						program.Send(tui.ToolCallMsg{
 							ToolName:    toolName,
 							Description: "Policy-denied: " + description,
+							StartTime:   now,
 						})
-						return false
+						return false, nil
 					}
 
 					// PolicyAsk — check yolo mode, then prompt user
 					if yoloEnabled.Load() {
+						if mutating {
+							createUndoSnapshot(description)
+						}
 						program.Send(tui.ToolCallMsg{
-							ToolName:    "yolo",
+							ToolName:    toolName,
 							Description: "Auto-approved: " + description,
+							StartTime:   now,
 						})
-						return true
+						return true, nil
 					}
-					responseCh := make(chan bool, 1)
+					// Determine risk level for the approval dialog
+					riskLevel := "mutating"
+					if toolName == "file_delete" || toolName == "shell_exec" {
+						riskLevel = "destructive"
+					}
+
+					// EditableContent is intentionally left empty until per-tool
+					// raw argument extraction is implemented. Passing the formatted
+					// description would corrupt files on edit+submit.
+					editableContent := ""
+					responseCh := make(chan tui.ConfirmResult, 1)
 					program.Send(tui.ConfirmActionMsg{
-						Description: description,
-						ResponseCh:  responseCh,
+						Description:     description,
+						ResponseCh:      responseCh,
+						ToolName:        toolName,
+						RiskLevel:       riskLevel,
+						EditableContent: editableContent,
 					})
 
-					var accepted bool
+					var result tui.ConfirmResult
 					select {
-					case accepted = <-responseCh:
+					case result = <-responseCh:
 					case <-time.After(5 * time.Minute):
-						accepted = false
+						result = tui.ConfirmResult{Approved: false}
 					case <-ctx.Done():
-						accepted = false
+						result = tui.ConfirmResult{Approved: false}
+					}
+
+					// Emit ToolCallMsg after interactive approval so tracking works
+					if result.Approved {
+						if mutating {
+							createUndoSnapshot(description)
+						}
+						program.Send(tui.ToolCallMsg{
+							ToolName:    toolName,
+							Description: "Approved: " + description,
+							StartTime:   time.Now(),
+						})
 					}
 
 					// Log user feedback for router calibration
 					if tlog != nil {
-						a := accepted
+						a := result.Approved
 						tlog.Log(telemetry.Event{
 							ProviderID: primary.ID(),
 							EventType:  telemetry.EventUserFeedback,
@@ -1403,7 +1703,7 @@ func startTUI(cfg *config.Config) error {
 							Accepted:   &a,
 						})
 					}
-					return accepted
+					return result.Approved, result.EditedContent
 				})
 
 				executor := action.NewExecutor(confirmFunc, 120*time.Second)
@@ -1419,7 +1719,8 @@ func startTUI(cfg *config.Config) error {
 							}
 							if policy != permissions.PolicyAllow && !mc.IsServerReadOnly(serverName) {
 								desc := fmt.Sprintf("MCP tool %s → %s.%s", call.Name, serverName, toolName)
-								if !confirmFunc(call.Name, desc) {
+								approved, _ := confirmFunc(call.Name, desc)
+								if !approved {
 									return "", fmt.Errorf("MCP tool %q denied by user", call.Name)
 								}
 							}
@@ -1434,6 +1735,13 @@ func startTUI(cfg *config.Config) error {
 				})
 
 				toolLoop := action.NewToolLoop(executor, primary)
+				toolLoop.SetToolDoneCallback(func(toolName string, duration time.Duration, errStr string) {
+					program.Send(tui.ToolCallDoneMsg{
+						ToolName: toolName,
+						Duration: duration,
+						Error:    errStr,
+					})
+				})
 
 				// Build synthesis-context messages for the tool loop:
 				// system prompt + user prompt + consensus response with tool calls
@@ -1450,8 +1758,8 @@ func startTUI(cfg *config.Config) error {
 					})
 				}
 
-				// Separate timeout for tool loop
-				toolCtx, toolCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				// No timeout — tool loop runs until the model stops issuing tool calls.
+				toolCtx, toolCancel := context.WithCancel(context.Background())
 
 				// Stream tool loop output live to TUI
 				toolOut := make(chan provider.StreamChunk, 16)
@@ -1487,7 +1795,7 @@ func startTUI(cfg *config.Config) error {
 						wroteFiles = true
 					}
 					// Display all chunks, but only persist model text (not status)
-					program.Send(tui.ConsensusChunkMsg{Delta: chunk.Delta})
+					program.Send(tui.ConsensusChunkMsg{Delta: chunk.Delta, Status: chunk.Status})
 					// Mirror all tool output (status + model text) into primary tab
 					program.Send(tui.ProviderTraceMsg{
 						ProviderName: primaryID,

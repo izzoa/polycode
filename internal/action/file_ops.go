@@ -221,7 +221,8 @@ func (e *Executor) editFile(path, oldText, newText string, replaceAll bool) Tool
 	if e.confirm == nil {
 		return ToolResult{Error: fmt.Errorf("file_edit: no confirmation callback configured")}
 	}
-	if !e.confirm("file_edit", description) {
+	approved, _ := e.confirm("file_edit", description)
+	if !approved {
 		return ToolResult{Output: "file edit cancelled by user"}
 	}
 
@@ -282,7 +283,8 @@ func (e *Executor) executeFileDelete(call provider.ToolCall) ToolResult {
 	if e.confirm == nil {
 		return ToolResult{ToolCallID: call.ID, Error: fmt.Errorf("file_delete: no confirmation callback configured")}
 	}
-	if !e.confirm("file_delete", description) {
+	approved, _ := e.confirm("file_delete", description)
+	if !approved {
 		return ToolResult{ToolCallID: call.ID, Output: "file delete cancelled by user"}
 	}
 
@@ -340,7 +342,8 @@ func (e *Executor) executeFileRename(call provider.ToolCall) ToolResult {
 	if e.confirm == nil {
 		return ToolResult{ToolCallID: call.ID, Error: fmt.Errorf("file_rename: no confirmation callback configured")}
 	}
-	if !e.confirm("file_rename", description) {
+	approved, _ := e.confirm("file_rename", description)
+	if !approved {
 		return ToolResult{ToolCallID: call.ID, Output: "file rename cancelled by user"}
 	}
 
@@ -445,10 +448,15 @@ func (e *Executor) writeFile(path string, content string) ToolResult {
 			Error: fmt.Errorf("file_write: no confirmation callback configured"),
 		}
 	}
-	if !e.confirm("file_write", description) {
+	approved, editedContent := e.confirm("file_write", description)
+	if !approved {
 		return ToolResult{
 			Output: "file write cancelled by user",
 		}
+	}
+	// Apply edited content if user modified it
+	if editedContent != nil {
+		content = *editedContent
 	}
 
 	// Ensure parent directory exists.

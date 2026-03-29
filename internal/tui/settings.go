@@ -24,7 +24,7 @@ func (m Model) renderSettings() string {
 	if m.cfg == nil || len(m.cfg.Providers) == 0 {
 		// Empty state
 		empty := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
+			Foreground(m.theme.TextMuted).
 			Italic(true).
 			Render("No providers configured — press 'a' to add one")
 		sections = append(sections, empty)
@@ -34,8 +34,8 @@ func (m Model) renderSettings() string {
 			"NAME", "TYPE", "MODEL", "AUTH", "PRIMARY")
 		headerStyle := lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("252")).
-			Background(lipgloss.Color("235"))
+			Foreground(m.theme.Text).
+			Background(m.theme.BgPanel)
 		sections = append(sections, headerStyle.Width(m.width-4).Render(header))
 
 		// Provider rows
@@ -68,8 +68,8 @@ func (m Model) renderSettings() string {
 			rowStyle := lipgloss.NewStyle()
 			if isSelected {
 				rowStyle = rowStyle.
-					Background(lipgloss.Color("236")).
-					Foreground(lipgloss.Color("252"))
+					Background(m.theme.BgSelected).
+					Foreground(m.theme.Text)
 			}
 			sections = append(sections, rowStyle.Width(m.width-4).Render(row))
 		}
@@ -91,7 +91,7 @@ func (m Model) renderSettings() string {
 
 	if mcpServerCount == 0 && len(m.mcpServers) == 0 {
 		empty := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
+			Foreground(m.theme.TextMuted).
 			Italic(true).
 			Render("No MCP servers configured")
 		sections = append(sections, empty)
@@ -101,8 +101,8 @@ func (m Model) renderSettings() string {
 			"NAME", "TRANSPORT", "STATUS", "TOOLS")
 		mcpHeaderStyle := lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("252")).
-			Background(lipgloss.Color("235"))
+			Foreground(m.theme.Text).
+			Background(m.theme.BgPanel)
 		sections = append(sections, mcpHeaderStyle.Width(m.width-4).Render(mcpHeader))
 
 		// Build status map from MCPStatusMsg
@@ -120,7 +120,7 @@ func (m Model) renderSettings() string {
 
 			status := "disconnected"
 			toolCount := "—"
-			statusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241")) // gray
+			statusStyle := lipgloss.NewStyle().Foreground(m.theme.TextMuted)
 
 			if s, ok := statusMap[srv.Name]; ok {
 				status = s.Status
@@ -129,9 +129,9 @@ func (m Model) renderSettings() string {
 				}
 				switch s.Status {
 				case "connected":
-					statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")) // green
+					statusStyle = lipgloss.NewStyle().Foreground(m.theme.Success)
 				case "failed":
-					statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // red
+					statusStyle = lipgloss.NewStyle().Foreground(m.theme.Error)
 				}
 			}
 
@@ -151,8 +151,8 @@ func (m Model) renderSettings() string {
 			rowStyle := lipgloss.NewStyle()
 			if m.mcpSettingsFocused && i == m.mcpSettingsCursor {
 				rowStyle = rowStyle.
-					Background(lipgloss.Color("236")).
-					Foreground(lipgloss.Color("252"))
+					Background(m.theme.BgSelected).
+					Foreground(m.theme.Text)
 			}
 			sections = append(sections, rowStyle.Width(m.width-4).Render(row))
 		}
@@ -169,7 +169,7 @@ func (m Model) renderSettings() string {
 		sections = append(sections, "")
 		name := m.cfg.Providers[m.settingsCursor].Name
 		warnStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196")).
+			Foreground(m.theme.Error).
 			Bold(true)
 		sections = append(sections, warnStyle.Render(
 			fmt.Sprintf("Remove provider '%s'? (y/n)", name)))
@@ -178,7 +178,7 @@ func (m Model) renderSettings() string {
 		sections = append(sections, "")
 		name := m.cfg.MCP.Servers[m.mcpSettingsCursor].Name
 		warnStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196")).
+			Foreground(m.theme.Error).
 			Bold(true)
 		sections = append(sections, warnStyle.Render(
 			fmt.Sprintf("Remove MCP server '%s'? (y/n)", name)))
@@ -204,7 +204,7 @@ func (m Model) renderSettings() string {
 
 	// Action hints
 	hintStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241"))
+		Foreground(m.theme.TextMuted)
 	focusHint := ""
 	if m.mcpSettingsFocused {
 		focusHint = " (MCP)"

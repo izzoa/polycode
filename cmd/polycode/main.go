@@ -359,6 +359,19 @@ func main() {
 	mcpCmd.AddCommand(mcpListCmd, mcpAddCmd, mcpRemoveCmd, mcpTestCmd, mcpSearchCmd, mcpBrowseCmd)
 	rootCmd.AddCommand(mcpCmd)
 
+	// Run command — headless non-interactive mode
+	var runConfirm bool
+	runCmd := &cobra.Command{
+		Use:   "run [prompt]",
+		Short: "Run a prompt in headless mode (no TUI)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runHeadless(args[0], runConfirm)
+		},
+	}
+	runCmd.Flags().BoolVar(&runConfirm, "confirm", false, "Prompt for tool confirmations (default: auto-approve)")
+	rootCmd.AddCommand(runCmd)
+
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}

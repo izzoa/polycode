@@ -38,9 +38,9 @@ type ChunkCallback func(providerID string, chunk provider.StreamChunk)
 // provider goroutines, so the implementation must be safe for concurrent use.
 type FanOutToolExecutor func(call provider.ToolCall) (output string, err error)
 
-// fanOutToolTimeout is the per-provider timeout for fan-out with tools.
-// Providers can use as many tool rounds as they want within this window.
-const fanOutToolTimeout = 5 * time.Minute
+// fanOutToolNoLimit is a very large duration used when tools are enabled,
+// effectively allowing providers to run until they complete naturally.
+const fanOutToolNoLimit = 24 * time.Hour
 
 // FanOut dispatches a query to all providers concurrently, collects their
 // streaming responses into complete strings, and returns once every provider
@@ -81,12 +81,11 @@ func FanOutWithTools(
 	toolExec FanOutToolExecutor,
 	toolCapable map[string]bool,
 ) *FanOutResult {
-	// When tools are enabled, use the longer tool timeout so providers
-	// can run as many tool rounds as they need. The context timeout is
-	// the only bound — no artificial round cap.
+	// When tools are enabled or no timeout is set, run without a time limit.
+	// Providers run until they complete naturally.
 	effectiveTimeout := timeout
-	if toolExec != nil && len(readOnlyTools) > 0 {
-		effectiveTimeout = fanOutToolTimeout
+	if effectiveTimeout <= 0 || (toolExec != nil && len(readOnlyTools) > 0) {
+		effectiveTimeout = fanOutToolNoLimit
 	}
 	ctx, cancel := context.WithTimeout(ctx, effectiveTimeout)
 	defer cancel()

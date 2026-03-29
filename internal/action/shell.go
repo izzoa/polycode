@@ -73,10 +73,15 @@ func (e *Executor) execShell(command string, workDir string) ToolResult {
 			Error: fmt.Errorf("shell_exec: no confirmation callback configured"),
 		}
 	}
-	if !e.confirm("shell_exec", description) {
+	approved, edited := e.confirm("shell_exec", description)
+	if !approved {
 		return ToolResult{
 			Output: "command execution cancelled by user",
 		}
+	}
+	// Apply edited command if user modified it
+	if edited != nil {
+		command = *edited
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), e.cmdTimeout)

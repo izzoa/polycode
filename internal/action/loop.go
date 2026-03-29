@@ -3,15 +3,21 @@ package action
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/izzoa/polycode/internal/provider"
 )
 
+// ToolDoneCallback is called when a tool call finishes executing.
+type ToolDoneCallback func(toolName string, duration time.Duration, err string)
+
 // ToolLoop manages the iterative cycle of executing tool calls and sending
 // results back to the model until the model produces a final text response.
 type ToolLoop struct {
-	executor *Executor
-	primary  provider.Provider
+	executor   *Executor
+	primary    provider.Provider
+	onToolDone ToolDoneCallback
 }
 
 // NewToolLoop creates a ToolLoop with the given executor and primary provider.
@@ -20,6 +26,11 @@ func NewToolLoop(executor *Executor, primary provider.Provider) *ToolLoop {
 		executor: executor,
 		primary:  primary,
 	}
+}
+
+// SetToolDoneCallback sets a callback that fires when each tool call completes.
+func (l *ToolLoop) SetToolDoneCallback(cb ToolDoneCallback) {
+	l.onToolDone = cb
 }
 
 // Run executes tool calls, appends results as native tool messages, and
@@ -83,7 +94,18 @@ func (l *ToolLoop) RunWithMessages(
 				return appended(), ctx.Err()
 			}
 
+			callStart := time.Now()
 			result := l.executor.Execute(call)
+			callDuration := time.Since(callStart)
+
+			// Notify callback of completion
+			if l.onToolDone != nil {
+				errStr := ""
+				if result.Error != nil {
+					errStr = result.Error.Error()
+				}
+				l.onToolDone(call.Name, callDuration, errStr)
+			}
 
 			content := result.Output
 			if result.Error != nil {
@@ -93,9 +115,11 @@ func (l *ToolLoop) RunWithMessages(
 				content += fmt.Sprintf("Error: %s", result.Error.Error())
 			}
 
-			// Show truncated tool output
-			displayOutput := content
-			if len(displayOutput) > 500 {
+			// Show truncated tool output (max 10 lines)
+			displayOutput := strings.TrimRight(content, "\n")
+			if lines := strings.Split(displayOutput, "\n"); len(lines) > 10 {
+				displayOutput = strings.Join(lines[:10], "\n") + fmt.Sprintf("\n[+%d more lines]", len(lines)-10)
+			} else if len(displayOutput) > 500 {
 				displayOutput = displayOutput[:500] + "\n... (truncated)"
 			}
 			if displayOutput != "" {

@@ -78,14 +78,14 @@ func TestWouldExceedLimit(t *testing.T) {
 		map[string]int{"limited": 100, "unlimited": 0},
 	)
 
-	// Under limit
+	// Under limit — last request used 50 of 100
 	tracker.Add("limited", Usage{InputTokens: 50})
 	if tracker.WouldExceedLimit("limited") {
 		t.Error("should not exceed at 50/100")
 	}
 
-	// At limit
-	tracker.Add("limited", Usage{InputTokens: 50})
+	// At limit — last request used all 100
+	tracker.Add("limited", Usage{InputTokens: 100})
 	if !tracker.WouldExceedLimit("limited") {
 		t.Error("should exceed at 100/100")
 	}
@@ -98,12 +98,12 @@ func TestWouldExceedLimit(t *testing.T) {
 }
 
 func TestProviderUsagePercent(t *testing.T) {
-	pu := ProviderUsage{InputTokens: 80000, Limit: 100000}
+	pu := ProviderUsage{LastInputTokens: 80000, Limit: 100000}
 	if pu.Percent() != 80.0 {
 		t.Errorf("expected 80.0%%, got %.1f%%", pu.Percent())
 	}
 
-	unlimited := ProviderUsage{InputTokens: 1000, Limit: 0}
+	unlimited := ProviderUsage{LastInputTokens: 1000, Limit: 0}
 	if unlimited.Percent() != 0 {
 		t.Errorf("expected 0%% for unlimited, got %.1f%%", unlimited.Percent())
 	}

@@ -60,7 +60,7 @@ func newTestExecutor() *Executor {
 
 // helper: create executor that auto-approves confirmations.
 func newTestExecutorWithConfirm(approve bool) *Executor {
-	return NewExecutor(func(_, _ string) bool { return approve }, 0)
+	return NewExecutor(func(_, _ string) (bool, *string) { return approve, nil }, 0)
 }
 
 // helper: make a ToolCall with JSON arguments.

@@ -481,7 +481,7 @@ func (m Model) renderMCPWizard() string {
 	}
 
 	// Hints
-	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	hintStyle := lipgloss.NewStyle().Foreground(m.theme.TextMuted)
 	switch m.mcpWizardStep {
 	case mcpStepSource, mcpStepBrowse, mcpStepTransport, mcpStepReadOnly:
 		sections = append(sections, hintStyle.Render("j/k:navigate  Enter:select  Esc:cancel"))

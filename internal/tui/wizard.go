@@ -351,7 +351,7 @@ func (m Model) renderWizard() string {
 	sections = append(sections, "")
 
 	// Navigation hints
-	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	hintStyle := lipgloss.NewStyle().Foreground(m.theme.TextMuted)
 	if m.wizardStep == stepConfirm {
 		sections = append(sections, hintStyle.Render("Enter:save  Esc:cancel"))
 	} else {
@@ -380,7 +380,7 @@ func (m Model) renderWizardSummary() []string {
 	var lines []string
 
 	labelStyle := lipgloss.NewStyle().Bold(true).Width(14)
-	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	valueStyle := lipgloss.NewStyle().Foreground(m.theme.Text)
 
 	lines = append(lines, "Review your provider configuration:")
 	lines = append(lines, "")

@@ -106,6 +106,7 @@ type Config struct {
 	Hooks       HooksConfig      `yaml:"hooks,omitempty"`
 	DefaultMode string           `yaml:"mode,omitempty"`
 	MCP         MCPConfig        `yaml:"mcp,omitempty"`
+	Theme       string           `yaml:"theme,omitempty"`
 }
 
 func DefaultConfig() Config {

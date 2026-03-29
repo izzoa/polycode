@@ -249,8 +249,8 @@ func TestTokenUpdateMsg_UpdatesTokenUsage(t *testing.T) {
 
 	m, _ = updateModel(t, m, TokenUpdateMsg{
 		Usage: []tokens.ProviderUsage{
-			{ProviderID: "provider1", InputTokens: 1500, OutputTokens: 500, Limit: 100000},
-			{ProviderID: "provider2", InputTokens: 2000, OutputTokens: 800, Limit: 0},
+			{ProviderID: "provider1", InputTokens: 1500, OutputTokens: 500, LastInputTokens: 1500, Limit: 100000},
+			{ProviderID: "provider2", InputTokens: 2000, OutputTokens: 800, LastInputTokens: 2000, Limit: 0},
 		},
 	})
 
@@ -332,7 +332,7 @@ func TestModeChangedMsg_UpdatesCurrentMode(t *testing.T) {
 
 func TestConfirmActionMsg_SetsPendingConfirm(t *testing.T) {
 	m := newTestModel()
-	ch := make(chan bool, 1)
+	ch := make(chan ConfirmResult, 1)
 
 	m, _ = updateModel(t, m, ConfirmActionMsg{
 		Description: "Delete file foo.go?",
@@ -352,7 +352,7 @@ func TestConfirmActionMsg_SetsPendingConfirm(t *testing.T) {
 
 func TestConfirmActionMsg_YeySendsTrue(t *testing.T) {
 	m := newTestModel()
-	ch := make(chan bool, 1)
+	ch := make(chan ConfirmResult, 1)
 
 	m, _ = updateModel(t, m, ConfirmActionMsg{
 		Description: "run command?",
@@ -364,7 +364,7 @@ func TestConfirmActionMsg_YeySendsTrue(t *testing.T) {
 
 	select {
 	case val := <-ch:
-		if !val {
+		if !val.Approved {
 			t.Error("expected true on channel after 'y', got false")
 		}
 	default:
@@ -381,7 +381,7 @@ func TestConfirmActionMsg_YeySendsTrue(t *testing.T) {
 
 func TestConfirmActionMsg_NoSendsFalse(t *testing.T) {
 	m := newTestModel()
-	ch := make(chan bool, 1)
+	ch := make(chan ConfirmResult, 1)
 
 	m, _ = updateModel(t, m, ConfirmActionMsg{
 		Description: "run command?",
@@ -393,7 +393,7 @@ func TestConfirmActionMsg_NoSendsFalse(t *testing.T) {
 
 	select {
 	case val := <-ch:
-		if val {
+		if val.Approved {
 			t.Error("expected false on channel after 'n', got true")
 		}
 	default:
@@ -407,7 +407,7 @@ func TestConfirmActionMsg_NoSendsFalse(t *testing.T) {
 
 func TestConfirmActionMsg_EscSendsFalse(t *testing.T) {
 	m := newTestModel()
-	ch := make(chan bool, 1)
+	ch := make(chan ConfirmResult, 1)
 
 	m, _ = updateModel(t, m, ConfirmActionMsg{
 		Description: "run command?",
@@ -419,7 +419,7 @@ func TestConfirmActionMsg_EscSendsFalse(t *testing.T) {
 
 	select {
 	case val := <-ch:
-		if val {
+		if val.Approved {
 			t.Error("expected false on channel after Esc, got true")
 		}
 	default:
@@ -433,7 +433,7 @@ func TestConfirmActionMsg_EscSendsFalse(t *testing.T) {
 
 func TestConfirmActionMsg_OtherKeysSwallowed(t *testing.T) {
 	m := newTestModel()
-	ch := make(chan bool, 1)
+	ch := make(chan ConfirmResult, 1)
 
 	m, _ = updateModel(t, m, ConfirmActionMsg{
 		Description: "run command?",
@@ -523,16 +523,17 @@ func TestWindowSizeMsg_UpdatesDimensions(t *testing.T) {
 // SplashDoneMsg
 // ---------------------------------------------------------------------------
 
-func TestSplashDoneMsg_DismissesSplash(t *testing.T) {
+func TestSplash_DismissedByKeypress(t *testing.T) {
 	m := NewModel([]string{"provider1"}, "provider1", "v1")
 	if !m.showSplash {
 		t.Fatal("showSplash should be true initially")
 	}
 
-	m, _ = updateModel(t, m, splashDoneMsg{})
+	// Any keypress dismisses the splash (no auto-dismiss timer)
+	m, _ = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
 
 	if m.showSplash {
-		t.Error("showSplash should be false after splashDoneMsg")
+		t.Error("showSplash should be false after keypress")
 	}
 }
 

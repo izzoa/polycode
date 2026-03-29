@@ -63,10 +63,20 @@ type SessionExchange struct {
 
 // Session holds the full conversation state for persistence.
 type Session struct {
-	Name      string            `json:"name,omitempty"` // user-assigned name (empty = default)
+	Name      string            `json:"name,omitempty"`       // descriptive name (auto or user-assigned)
+	UserNamed bool              `json:"user_named,omitempty"` // true if user explicitly named (prevents auto-overwrite)
 	Messages  []SessionMessage  `json:"messages"`
 	Exchanges []SessionExchange `json:"exchanges"`
 	UpdatedAt time.Time         `json:"updated_at"`
+}
+
+// SetName sets the session name. If userSet is true, marks the session as
+// user-named to prevent auto-naming from overwriting.
+func (s *Session) SetName(name string, userSet bool) {
+	s.Name = name
+	if userSet {
+		s.UserNamed = true
+	}
 }
 
 // SessionPath returns the path to the session file, scoped to the current
@@ -258,4 +268,29 @@ func ExportSession(s *Session, path string) error {
 		return fmt.Errorf("writing export: %w", err)
 	}
 	return nil
+}
+
+// ExportSessionMarkdown returns the session as a readable markdown string.
+func ExportSessionMarkdown(s *Session) string {
+	var b strings.Builder
+	name := s.Name
+	if name == "" {
+		name = "Polycode Session"
+	}
+	b.WriteString("# " + name + "\n\n")
+	b.WriteString(fmt.Sprintf("*Updated: %s*\n\n", s.UpdatedAt.Format("2006-01-02 15:04")))
+	b.WriteString("---\n\n")
+
+	for i, ex := range s.Exchanges {
+		b.WriteString(fmt.Sprintf("## Turn %d\n\n", i+1))
+		b.WriteString("**Prompt:**\n\n")
+		b.WriteString(ex.Prompt + "\n\n")
+		if ex.ConsensusResponse != "" {
+			b.WriteString("**Response:**\n\n")
+			b.WriteString(ex.ConsensusResponse + "\n\n")
+		}
+		b.WriteString("---\n\n")
+	}
+
+	return b.String()
 }
