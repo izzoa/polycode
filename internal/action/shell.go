@@ -43,6 +43,13 @@ var destructivePatterns = []string{
 	"/dev/nvme",
 	"/sys/",
 	"/proc/",
+	"find ", "find\t", // find with -delete, -exec rm
+	"-delete",
+	"truncate ",
+	"shred ",
+	"mv /",
+	"\\rm",  // backslash prefix to bypass alias
+	"> /",   // redirect to root paths
 }
 
 // isDestructive performs a simple heuristic check to determine if a command

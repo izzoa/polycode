@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"log"
 	"os/exec"
+	"strings"
 	"text/template"
 
 	"github.com/izzoa/polycode/internal/config"
@@ -76,14 +77,34 @@ func (m *HookManager) commandFor(event HookEvent) string {
 	}
 }
 
+// shellEscape quotes a string for safe use in shell commands.
+func shellEscape(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
+// safeCtx wraps HookContext fields with shell-escaped versions.
+type safeCtx struct {
+	Prompt   string
+	Response string
+	Error    string
+	ToolName string
+}
+
 // renderTemplate applies Go text/template substitution to the command string.
+// All context fields are shell-escaped to prevent injection.
 func renderTemplate(cmdTemplate string, ctx HookContext) (string, error) {
+	safe := safeCtx{
+		Prompt:   shellEscape(ctx.Prompt),
+		Response: shellEscape(ctx.Response),
+		Error:    shellEscape(ctx.Error),
+		ToolName: shellEscape(ctx.ToolName),
+	}
 	tmpl, err := template.New("hook").Parse(cmdTemplate)
 	if err != nil {
 		return "", err
 	}
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, ctx); err != nil {
+	if err := tmpl.Execute(&buf, safe); err != nil {
 		return "", err
 	}
 	return buf.String(), nil

@@ -34,6 +34,10 @@ func NewAnthropicProvider(name, model, baseURL, authMethod string, oauthCfg *aut
 		baseURL = defaultAnthropicURL
 	} else {
 		baseURL = strings.TrimRight(baseURL, "/")
+		// Append API path if not already present (custom proxies often omit it)
+		if !strings.HasSuffix(baseURL, "/v1/messages") {
+			baseURL += "/v1/messages"
+		}
 	}
 	return &AnthropicProvider{
 		name:       name,

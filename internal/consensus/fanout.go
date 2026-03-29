@@ -45,6 +45,10 @@ type FanOutToolExecutor func(call provider.ToolCall) (output string, err error)
 // effectively allowing providers to run until they complete naturally.
 const fanOutToolNoLimit = 24 * time.Hour
 
+// MaxFanOutToolRounds limits how many tool-call iterations a fan-out provider
+// can perform before being forcibly stopped. Prevents runaway API token burn.
+const MaxFanOutToolRounds = 25
+
 // FanOut dispatches a query to all providers concurrently, collects their
 // streaming responses into complete strings, and returns once every provider
 // has finished or the timeout is reached.
@@ -208,7 +212,7 @@ func queryWithToolLoop(
 	var totalBuf strings.Builder
 	var totalUsage tokens.Usage
 
-	for {
+	for round := 0; round < MaxFanOutToolRounds; round++ {
 		ch, err := p.Query(ctx, msgs, opts)
 		if err != nil {
 			// Surface the error to the TUI so the tab shows failure.
@@ -312,4 +316,6 @@ func queryWithToolLoop(
 		}
 		// Loop to re-query with tool results.
 	}
+	// Max rounds exceeded
+	return totalBuf.String(), totalUsage, fmt.Errorf("fan-out tool loop exceeded %d rounds", MaxFanOutToolRounds)
 }

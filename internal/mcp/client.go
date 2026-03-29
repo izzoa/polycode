@@ -177,6 +177,10 @@ func (c *MCPClient) Connect(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Clear existing state to make Connect idempotent
+	c.tools = nil
+	c.toolIndex = make(map[string]struct{ Server, Tool string })
+
 	var errs []string
 
 	for _, cfg := range c.configs {
@@ -327,7 +331,11 @@ func (c *MCPClient) connectStdio(ctx context.Context, cfg config.MCPServerConfig
 		process: cmd,
 		stdin:   stdin,
 		stdout:  stdout,
-		scanner: bufio.NewScanner(stdout),
+		scanner: func() *bufio.Scanner {
+			s := bufio.NewScanner(stdout)
+			s.Buffer(make([]byte, 64*1024), 4*1024*1024) // 4MB max line size
+			return s
+		}(),
 		exitCh:  exitCh,
 		debug:   c.debug,
 	}

@@ -289,19 +289,20 @@ func startTUI(cfg *config.Config) error {
 			model.SetSessionName(savedSession.Name)
 		}
 		if len(savedSession.Messages) > 0 {
-		// Restore conversation messages with full tool call data
-		restored := fromSessionMessages(savedSession.Messages)
-		conv.mu.Lock()
-		conv.messages = []provider.Message{systemPrompt}
-		for _, m := range restored {
-			if m.Role == provider.RoleSystem {
-				continue // skip saved system prompt, we use the current one
+			// Restore conversation messages with full tool call data
+			restored := fromSessionMessages(savedSession.Messages)
+			conv.mu.Lock()
+			conv.messages = []provider.Message{systemPrompt}
+			for _, m := range restored {
+				if m.Role == provider.RoleSystem {
+					continue // skip saved system prompt, we use the current one
+				}
+				conv.messages = append(conv.messages, m)
 			}
-			conv.messages = append(conv.messages, m)
+			conv.mu.Unlock()
 		}
-		conv.mu.Unlock()
 
-		// Restore display history, converting persisted traces to TUI format
+		// Restore display history (independent of Messages — works with older formats)
 		for _, ex := range savedSession.Exchanges {
 			tuiEx := tui.Exchange{
 				Prompt:             ex.Prompt,
@@ -323,7 +324,6 @@ func startTUI(cfg *config.Config) error {
 		// Populate provider panels with the last exchange's content
 		// so individual responses are visible on resume, not just consensus.
 		model.RestorePanelsFromLastExchange()
-		}
 	}
 	model.SetConfig(cfg)
 
@@ -369,6 +369,15 @@ func startTUI(cfg *config.Config) error {
 
 		// Rebuild tracker; provider selection happens per query via router
 		tracker = tokens.NewTracker(newProviderModels, newProviderLimits)
+		// Re-wire cost tracking (was missing — caused cost display to break after config changes)
+		if metadataStore != nil {
+			tracker.SetCostFunc(func(model, providerType string, inputTokens, outputTokens int) float64 {
+				return metadataStore.CostForTokens(model, providerType, inputTokens, outputTokens)
+			})
+		}
+		for _, pc := range newCfg.Providers {
+			tracker.SetProviderType(pc.Name, string(pc.Type))
+		}
 		registry = newRegistry
 		healthy = newHealthy
 		primary = newPrimary
@@ -1254,7 +1263,7 @@ func startTUI(cfg *config.Config) error {
 			// into a dense summary to free tokens.
 			primaryUsage := tracker.Get(primary.ID())
 			if primaryUsage.Limit > 0 && len(messages) > 4 {
-				usagePct := float64(primaryUsage.InputTokens) / float64(primaryUsage.Limit) * 100
+				usagePct := float64(primaryUsage.LastInputTokens) / float64(primaryUsage.Limit) * 100
 				if usagePct >= 80 {
 					messages = summarizeConversation(messages)
 					// Update conversation state with compressed version

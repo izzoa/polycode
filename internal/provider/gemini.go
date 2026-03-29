@@ -87,9 +87,10 @@ func (p *GeminiProvider) Validate() error {
 
 // geminiRequest is the request body for the Gemini streaming API.
 type geminiRequest struct {
-	Contents         []geminiContent      `json:"contents"`
-	Tools            []geminiToolDef      `json:"tools,omitempty"`
-	GenerationConfig *geminiGenerationCfg `json:"generationConfig,omitempty"`
+	Contents          []geminiContent      `json:"contents"`
+	SystemInstruction *geminiContent       `json:"systemInstruction,omitempty"`
+	Tools             []geminiToolDef      `json:"tools,omitempty"`
+	GenerationConfig  *geminiGenerationCfg `json:"generationConfig,omitempty"`
 }
 
 // geminiGenerationCfg holds generation parameters for Gemini.
@@ -155,13 +156,18 @@ type geminiCandidate struct {
 
 func (p *GeminiProvider) Query(ctx context.Context, messages []Message, opts QueryOpts) (<-chan StreamChunk, error) {
 	var contents []geminiContent
+	var systemInstruction *geminiContent
 	for _, m := range messages {
 		role := string(m.Role)
 		switch m.Role {
 		case RoleAssistant:
 			role = "model"
 		case RoleSystem:
-			role = "user"
+			// Use Gemini's native systemInstruction field
+			systemInstruction = &geminiContent{
+				Parts: []geminiPart{{Text: m.Content}},
+			}
+			continue
 		case RoleTool:
 			// Tool results use the "user" role with functionResponse parts.
 			// Find the tool call name from the message history.
@@ -223,7 +229,8 @@ func (p *GeminiProvider) Query(ctx context.Context, messages []Message, opts Que
 	}
 
 	reqBody := geminiRequest{
-		Contents: contents,
+		Contents:          contents,
+		SystemInstruction: systemInstruction,
 	}
 
 	// Map reasoning effort to Gemini's thinking config.
@@ -302,6 +309,7 @@ func (p *GeminiProvider) readSSE(ctx context.Context, body io.ReadCloser, ch cha
 
 	var inputTokens, outputTokens int
 	var toolCallCounter int
+	var toolCalls []ToolCall // accumulated across all chunks
 
 	scanner := bufio.NewScanner(body)
 	for scanner.Scan() {
@@ -342,7 +350,6 @@ func (p *GeminiProvider) readSSE(ctx context.Context, body io.ReadCloser, ch cha
 		candidate := resp.Candidates[0]
 
 		// Emit text content and accumulate function calls from parts.
-		var toolCalls []ToolCall
 		for _, part := range candidate.Content.Parts {
 			if part.Text != "" {
 				ch <- StreamChunk{Delta: part.Text}
