@@ -124,18 +124,19 @@ func (m Model) renderChat() string {
 	sections = append(sections, m.renderTabBar())
 
 	// Main content area — split pane or single panel
-	if m.splitPaneActive() && m.activeTab <= 0 {
-		// Wide terminal: show consensus + provider side by side
-		if len(m.history) > 0 || m.querying || m.consensusActive {
+	if m.splitPaneActive() {
+		// Wide terminal: always show split pane (left = active tab, right = split panel)
+		if len(m.history) > 0 || m.querying || m.consensusActive ||
+			(m.activeTab > 0 && m.activeTab-1 < len(m.panels)) {
 			sections = append(sections, m.renderSplitPane())
 		}
 	} else if m.activeTab <= 0 {
-		// Content is set in Update() via syncChatViewContent() — View() just renders.
+		// Narrow: consensus/chat view
 		if len(m.history) > 0 || m.querying || m.consensusActive {
 			sections = append(sections, m.renderChatPanel())
 		}
 	} else if m.activeTab > 0 && m.activeTab-1 < len(m.panels) {
-		// Provider tab: show that provider's full response
+		// Narrow: single provider panel
 		panel := m.panels[m.activeTab-1]
 		sections = append(sections, m.renderSingleProviderPanel(panel))
 	}
@@ -645,6 +646,7 @@ func (m Model) renderHelp() string {
 		{"↑ (input empty)", "Focus tab bar for ←/→ navigation + shortcuts"},
 		{"↓ / Enter / Esc", "Return focus to input"},
 		{"m (tab bar)", "Toggle MCP dashboard"},
+		{"c (tab bar)", "Cancel selected provider during query"},
 		{"p (tab bar)", "Toggle consensus provenance panel"},
 		{"? (tab bar)", "Toggle this help overlay"},
 		{"Enter", "Submit prompt"},
@@ -778,18 +780,35 @@ func (m Model) renderTabBar() string {
 
 	// Provider tabs with status + token usage
 	for i, panel := range m.panels {
+		// Check if this provider is disabled in config
+		isDisabled := false
+		if m.cfg != nil {
+			for _, pc := range m.cfg.Providers {
+				if pc.Name == panel.Name && pc.Disabled {
+					isDisabled = true
+					break
+				}
+			}
+		}
+
 		var icon string
-		switch panel.Status {
-		case StatusIdle:
-			icon = "○"
-		case StatusLoading:
-			icon = m.spinner.View()
-		case StatusDone:
-			icon = "✓"
-		case StatusFailed:
-			icon = "✕"
-		case StatusTimedOut:
-			icon = "⏱"
+		if isDisabled {
+			icon = "×"
+		} else {
+			switch panel.Status {
+			case StatusIdle:
+				icon = "○"
+			case StatusLoading:
+				icon = m.spinner.View()
+			case StatusDone:
+				icon = "✓"
+			case StatusFailed:
+				icon = "✕"
+			case StatusTimedOut:
+				icon = "⏱"
+			case StatusCancelled:
+				icon = "⊘"
+			}
 		}
 
 		label := icon + " " + panel.Name
@@ -805,7 +824,15 @@ func (m Model) renderTabBar() string {
 			}
 		}
 
-		if m.activeTab == i+1 {
+		if isDisabled {
+			// Strikethrough + dimmed for disabled providers
+			disabledStyle := lipgloss.NewStyle().
+				Foreground(m.theme.TextMuted).
+				Background(m.theme.BgPanel).
+				Strikethrough(true).
+				Padding(0, 1)
+			header = append(header, disabledStyle.Render(label))
+		} else if m.activeTab == i+1 {
 			header = append(header, activeStyle.Render(label))
 		} else {
 			header = append(header, inactiveStyle.Render(label))

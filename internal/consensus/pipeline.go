@@ -12,6 +12,10 @@ import (
 
 // Pipeline orchestrates the full consensus workflow: fan-out query to all
 // providers, threshold check, and synthesis via the primary provider.
+// CancelCallback is called during fan-out with the per-provider cancel functions,
+// allowing external code to cancel individual providers mid-query.
+type CancelCallback func(cancels map[string]context.CancelFunc)
+
 type Pipeline struct {
 	engine         *Engine
 	providers      []provider.Provider
@@ -19,6 +23,7 @@ type Pipeline struct {
 	tracker        *tokens.TokenTracker
 	truncateBudget int           // max total chars for fan-out responses; 0 = no truncation
 	onChunk        ChunkCallback // optional: called for each streaming chunk during fan-out
+	onCancel       CancelCallback // optional: receives per-provider cancel funcs
 
 	// Read-only tool support for fan-out. When both are set, providers can
 	// call read-only tools (e.g., file_read) during their fan-out response.
@@ -73,6 +78,12 @@ func (p *Pipeline) SetChunkCallback(cb ChunkCallback) {
 	p.onChunk = cb
 }
 
+// SetCancelCallback sets a callback that receives per-provider cancel functions
+// during fan-out, enabling external cancellation of individual providers.
+func (p *Pipeline) SetCancelCallback(cb CancelCallback) {
+	p.onCancel = cb
+}
+
 // SetFanOutTools configures read-only tools available to providers during
 // fan-out. The executor handles the actual tool execution (e.g., file_read).
 // toolCapable maps provider IDs that support structured tool calling — others
@@ -107,7 +118,7 @@ func (p *Pipeline) Run(
 	}
 
 	// Phase 1: fan-out (with read-only tools if configured).
-	fanOutResult := FanOutWithTools(ctx, p.providers, messages, opts, p.timeout, p.tracker, p.onChunk, p.fanOutTools, p.fanOutToolExec, p.toolCapable)
+	fanOutResult := FanOutWithTools(ctx, p.providers, messages, opts, p.timeout, p.tracker, p.onChunk, p.fanOutTools, p.fanOutToolExec, p.toolCapable, p.onCancel)
 
 	// Truncate fan-out responses to fit within the primary model's context.
 	if p.truncateBudget > 0 && len(fanOutResult.Responses) > 0 {
@@ -139,8 +150,13 @@ func (p *Pipeline) Run(
 	// Extract the original prompt from the last user message.
 	originalPrompt := extractOriginalPrompt(messages)
 
-	// Phase 2: synthesis.
-	ch, err := p.engine.Synthesize(ctx, originalPrompt, fanOutResult.Responses, opts)
+	// Phase 2: synthesis — pass conversation history (minus the last user message,
+	// which is embedded in the synthesis prompt) so the model has multi-turn context.
+	var history []provider.Message
+	for i := 0; i < len(messages)-1; i++ {
+		history = append(history, messages[i])
+	}
+	ch, err := p.engine.Synthesize(ctx, originalPrompt, fanOutResult.Responses, opts, history...)
 	if err != nil {
 		return nil, fanOutResult, fmt.Errorf("consensus: synthesis failed: %w", err)
 	}

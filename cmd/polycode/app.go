@@ -1144,6 +1144,20 @@ func startTUI(cfg *config.Config) error {
 	})
 
 	// Set up clear handler to reset conversation state and delete saved session
+	// Per-provider cancel support
+	var activeCancelFuncs struct {
+		sync.Mutex
+		m map[string]context.CancelFunc
+	}
+	model.SetCancelProviderHandler(func(providerName string) {
+		activeCancelFuncs.Lock()
+		defer activeCancelFuncs.Unlock()
+		if fn, ok := activeCancelFuncs.m[providerName]; ok {
+			fn()
+			delete(activeCancelFuncs.m, providerName)
+		}
+	})
+
 	model.SetClearHandler(func() {
 		conv.mu.Lock()
 		conv.messages = []provider.Message{systemPrompt}
@@ -1415,6 +1429,14 @@ func startTUI(cfg *config.Config) error {
 						Delta:        chunk.Delta,
 					})
 				}
+			})
+
+			// Store cancel funcs from fan-out so providers can be cancelled mid-query.
+			// The pipeline populates these during fan-out goroutine launch.
+			queryPipeline.SetCancelCallback(func(cancels map[string]context.CancelFunc) {
+				activeCancelFuncs.Lock()
+				activeCancelFuncs.m = cancels
+				activeCancelFuncs.Unlock()
 			})
 
 			// Run the fan-out + consensus pipeline with full history

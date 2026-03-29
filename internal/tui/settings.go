@@ -30,8 +30,8 @@ func (m Model) renderSettings() string {
 		sections = append(sections, empty)
 	} else {
 		// Table header
-		header := fmt.Sprintf("  %-20s %-20s %-30s %-10s %-8s",
-			"NAME", "TYPE", "MODEL", "AUTH", "PRIMARY")
+		header := fmt.Sprintf("  %-20s %-20s %-30s %-10s %-10s %-8s",
+			"NAME", "TYPE", "MODEL", "AUTH", "STATUS", "PRIMARY")
 		headerStyle := lipgloss.NewStyle().
 			Bold(true).
 			Foreground(m.theme.Text).
@@ -56,12 +56,18 @@ func (m Model) renderSettings() string {
 				cursor = m.styles.Prompt.Render("> ")
 			}
 
-			row := fmt.Sprintf("%s%-20s %-20s %-30s %-10s %-8s",
+			status := m.styles.StatusHealthy.Render("enabled")
+			if p.Disabled {
+				status = m.styles.StatusUnhealthy.Render("disabled")
+			}
+
+			row := fmt.Sprintf("%s%-20s %-20s %-30s %-10s %-10s %-8s",
 				cursor,
 				p.Name,
 				string(p.Type),
 				truncate(p.Model, 28),
 				authDisplay,
+				status,
 				primary,
 			)
 
@@ -209,7 +215,7 @@ func (m Model) renderSettings() string {
 	if m.mcpSettingsFocused {
 		focusHint = " (MCP)"
 	}
-	hints := hintStyle.Render(fmt.Sprintf("a:add  e:edit  d:delete  t:test  Tab:switch%s  Esc:back", focusHint))
+	hints := hintStyle.Render(fmt.Sprintf("a:add  e:edit  d:delete  x:disable/enable  t:test  Tab:switch%s  Esc:back", focusHint))
 	sections = append(sections, hints)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, sections...)

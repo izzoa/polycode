@@ -6,6 +6,60 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.21.0] - 2026-03-29
+
+### Added
+- **Theme System**: Centralized semantic color architecture with 6 built-in themes (Polycode, Catppuccin Mocha, Tokyo Night, Dracula, Gruvbox Dark, Nord). All ~85 hardcoded colors replaced with theme references. Theme picker via `Ctrl+T` or `/theme`. Persists to config.
+- **@ File Reference**: Type `@` in input to fuzzy-search project files and attach them to prompts. Attachment pills shown above input. File contents injected on submit with size/binary guards.
+- **! Shell Context Injection**: Prefix input with `!command` to run a shell command and inject output as context. 30s timeout, 50KB output cap.
+- **Dynamic Textarea**: Input grows from 1 to 8 lines as content increases.
+- **External Editor Compose**: `Ctrl+E` or `/compose` opens `$EDITOR` for multi-line prompt authoring.
+- **Enhanced Command Palette**: `Ctrl+P` opens unified palette searching commands and files. Fuzzy matching via sahilm/fuzzy. Up/down cursor navigation.
+- **Vim Scroll Keys**: `j`/`k`/`d`/`u`/`g`/`G` when tab bar focused.
+- **Copy to Clipboard**: `y` key or `/copy` copies last response. `/share` copies session as markdown.
+- **Tool Call Tracking**: Per-tool timing, `ToolCallDoneMsg`, conceal/collapse via `Ctrl+H`.
+- **Syntax-Highlighted Diffs**: Colorized `+`/`-` lines in confirmation prompts.
+- **Structured Error Panel**: Red-bordered collapsible panel replacing raw `[ERROR: ...]`. `r` retry, `e` expand, `c` copy.
+- **Persistent Status Bar**: Bottom bar with mode, session name, context %, tokens, cost, active model. Per-provider context shown when viewing provider tabs.
+- **Context Pressure Warnings**: Threshold-crossing warnings at 80% and 95%.
+- **Turn Artifact Timeline**: Per-exchange structured block showing provider fan-out status and tool calls.
+- **Live Task HUD**: Dynamic checklist of tool calls during execution.
+- **Session Picker**: `/sessions` opens visual browser with fuzzy search, rename, delete.
+- **Session Auto-Naming**: Primary model generates 3-5 word name after first exchange.
+- **Git Undo**: `/undo` reverts file changes from the last mutating tool call.
+- **Export Improvements**: `/export md` for markdown, `/share` for clipboard.
+- **Desktop Notifications**: macOS/Linux notifications when terminal unfocused (opt-in).
+- **Auto-Scroll Toggle**: `Ctrl+G` locks/unlocks auto-scroll during streaming.
+- **Enhanced Spinner**: Braille charset with phase-aware labels (Dispatching/Thinking/Synthesizing/Executing).
+- **Overlay Drop Shadows**: Visual depth on all modal overlays.
+- **Scrollbar Indicators**: Thin scrollbar track on chat and provider viewports.
+- **Splash Animation**: Typewriter reveal + color wave on startup logo, session info display.
+- **Gradient Header**: Per-character HCL-blended gradient on "polycode" title.
+- **Streaming Markdown**: Adaptive throttle with FNV hash caching for efficient re-rendering. Live markdown in provider panels.
+- **Split Pane Layout**: Auto-enables at ≥140 columns. Left/right independently scrollable with mouse.
+- **Approval UX Overhaul**: Risk level indicators, `a` for session-allow (blocked for destructive), `e` to edit before execution.
+- **Mouse Support**: Wheel scrolling (left/right pane aware), tab bar click, input focus click.
+- **Toast Notifications**: Non-blocking transient overlays for config save, MCP connect, clipboard, errors.
+- **Provider Disable/Enable**: `x` key in settings to toggle providers. Strikethrough in tab bar.
+- **Cancel Provider**: `c` key on tab bar cancels individual provider mid-query.
+- **Headless Mode Stub**: `polycode run "prompt"` command registered (pipeline extraction pending).
+- **Configurable Keybindings Spec**: OpenSpec change ready for implementation.
+- **Session Branching Spec**: OpenSpec change ready for implementation.
+
+### Changed
+- **Conversation Context**: Synthesis step now receives full multi-turn conversation history, fixing "I don't know what you're referring to" on follow-up prompts.
+- **Token Display**: Shows last-request context window usage instead of accumulated session total. Context percentage now accurately reflects actual window pressure.
+- **ConfirmFunc API**: Changed from `func(string, string) bool` to `func(string, string) (bool, *string)` to support edited content.
+- **Provider Timeouts**: Removed 5-minute hard limits. Providers run until completion.
+- **Tool Result Truncation**: Changed from 500-char to 10-line limit with `[+N more lines]`.
+- **Down Arrow**: Clears textarea input when cursor is on last line.
+
+### Fixed
+- **`/clear` Freeze**: Removed `program.Send()` from synchronous `onClear` callback that deadlocked the Bubble Tea event loop.
+- **`/mcp search` No Output**: Fixed display bug where `ConsensusChunkMsg` with both Delta and Done was discarded. Also fixed chat panel not showing when `consensusActive` but not `querying`.
+- **Token Tracker Reset**: `/clear` now resets token usage for all providers.
+- **Session Allow Persistence**: `/clear` now clears session-level tool approvals.
+
 ## [1.20.4] - 2026-03-28
 
 ### Fixed

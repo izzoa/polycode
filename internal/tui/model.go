@@ -58,6 +58,9 @@ type TraceSection struct {
 }
 
 // ProviderPanel holds the state for one provider's response panel.
+// StatusCancelled indicates the user cancelled this provider mid-query.
+const StatusCancelled ProviderStatus = 5
+
 type ProviderPanel struct {
 	Name      string
 	IsPrimary bool
@@ -387,9 +390,10 @@ type Model struct {
 	onSkill         func(subcommand, args string)
 	onSessions      func(subcommand, args string)
 	onSave          func()
-	onExport         func(path string)
-	onExportMarkdown func()
-	onShareSession   func()
+	onExport          func(path string)
+	onExportMarkdown  func()
+	onShareSession    func()
+	onCancelProvider  func(providerName string) // cancels a specific provider mid-query
 	onUndo           func()
 	onRedo           func()
 	onYoloToggle    func(enabled bool)
@@ -749,6 +753,11 @@ func (m *Model) SetSplashSessionInfo(msg string) {
 func (m *Model) SetNotifyEnabled(enabled bool) {
 	m.notifyEnabled = enabled
 	m.terminalFocused = true // assume focused at start
+}
+
+// SetCancelProviderHandler sets the callback for cancelling a provider mid-query.
+func (m *Model) SetCancelProviderHandler(handler func(providerName string)) {
+	m.onCancelProvider = handler
 }
 
 // SetUndoHandler sets the callback for /undo.

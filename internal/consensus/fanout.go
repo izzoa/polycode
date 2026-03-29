@@ -26,6 +26,9 @@ type FanOutResult struct {
 	Latencies map[string]time.Duration
 	// Skipped lists provider IDs that were skipped due to context limits.
 	Skipped []string
+	// CancelFuncs maps provider ID to a function that cancels that provider's context.
+	// Available during fan-out for preemptive cancellation.
+	CancelFuncs map[string]context.CancelFunc
 }
 
 // ChunkCallback is called for each streaming chunk from a provider during fan-out.
@@ -60,7 +63,7 @@ func FanOut(
 	tracker *tokens.TokenTracker,
 	onChunk ChunkCallback,
 ) *FanOutResult {
-	return FanOutWithTools(ctx, providers, messages, opts, timeout, tracker, onChunk, nil, nil, nil)
+	return FanOutWithTools(ctx, providers, messages, opts, timeout, tracker, onChunk, nil, nil, nil, nil)
 }
 
 // FanOutWithTools is like FanOut but allows read-only tools during fan-out.
@@ -80,6 +83,7 @@ func FanOutWithTools(
 	readOnlyTools []provider.ToolDefinition,
 	toolExec FanOutToolExecutor,
 	toolCapable map[string]bool,
+	onCancel CancelCallback,
 ) *FanOutResult {
 	// When tools are enabled or no timeout is set, run without a time limit.
 	// Providers run until they complete naturally.
@@ -91,10 +95,11 @@ func FanOutWithTools(
 	defer cancel()
 
 	result := &FanOutResult{
-		Responses: make(map[string]string, len(providers)),
-		Errors:    make(map[string]error, len(providers)),
-		Usage:     make(map[string]tokens.Usage, len(providers)),
-		Latencies: make(map[string]time.Duration, len(providers)),
+		Responses:   make(map[string]string, len(providers)),
+		Errors:      make(map[string]error, len(providers)),
+		Usage:       make(map[string]tokens.Usage, len(providers)),
+		Latencies:   make(map[string]time.Duration, len(providers)),
+		CancelFuncs: make(map[string]context.CancelFunc, len(providers)),
 	}
 
 	// Build fan-out opts: use read-only tools if provided, otherwise strip all.
@@ -120,8 +125,14 @@ func FanOutWithTools(
 			continue
 		}
 
+		// Per-provider cancellable context
+		provCtx, provCancel := context.WithCancel(ctx)
+		mu.Lock()
+		result.CancelFuncs[p.ID()] = provCancel
+		mu.Unlock()
+
 		wg.Add(1)
-		go func(p provider.Provider) {
+		go func(p provider.Provider, pCtx context.Context) {
 			defer wg.Done()
 
 			id := p.ID()
@@ -153,7 +164,7 @@ func FanOutWithTools(
 				provExec = nil
 			}
 
-			resp, usage, err := queryWithToolLoop(ctx, p, messages, provOpts, provExec, onChunk, id)
+			resp, usage, err := queryWithToolLoop(pCtx, p, messages, provOpts, provExec, onChunk, id)
 			mu.Lock()
 			if err != nil {
 				result.Errors[id] = err
@@ -167,7 +178,12 @@ func FanOutWithTools(
 			}
 			result.Latencies[id] = time.Since(start)
 			mu.Unlock()
-		}(p)
+		}(p, provCtx)
+	}
+
+	// Expose cancel funcs to caller while goroutines are still running
+	if onCancel != nil {
+		onCancel(result.CancelFuncs)
 	}
 
 	wg.Wait()

@@ -25,9 +25,17 @@ func (m Model) renderSplitPane() string {
 		rightWidth = 20
 	}
 
-	// Left panel: chat/consensus (reuse existing rendering)
+	// Left panel: active tab content (consensus chat or selected provider)
 	leftStyle := lipgloss.NewStyle().Width(leftWidth).MaxHeight(m.chatView.Height + 2)
-	leftContent := m.chatView.View()
+	var leftContent string
+	if m.activeTab > 0 && m.activeTab-1 < len(m.panels) {
+		// Provider tab selected — show that provider on the left
+		panel := m.panels[m.activeTab-1]
+		header := lipgloss.NewStyle().Bold(true).Foreground(m.theme.Tertiary).Render(panel.Name)
+		leftContent = header + "\n" + panel.Viewport.View()
+	} else {
+		leftContent = m.chatView.View()
+	}
 	left := leftStyle.Render(leftContent)
 
 	// Divider

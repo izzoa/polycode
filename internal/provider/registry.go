@@ -21,6 +21,9 @@ func NewRegistry(cfg *config.Config) (*Registry, error) {
 	r := &Registry{}
 
 	for _, pc := range cfg.Providers {
+		if pc.Disabled {
+			continue
+		}
 		p, err := newProvider(pc, store)
 		if err != nil {
 			return nil, fmt.Errorf("creating provider %q: %w", pc.Name, err)
@@ -44,6 +47,9 @@ func NewRegistryWithStore(cfg *config.Config, store auth.Store) (*Registry, erro
 	r := &Registry{}
 
 	for _, pc := range cfg.Providers {
+		if pc.Disabled {
+			continue
+		}
 		p, err := newProvider(pc, store)
 		if err != nil {
 			return nil, fmt.Errorf("creating provider %q: %w", pc.Name, err)

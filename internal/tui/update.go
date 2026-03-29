@@ -1531,6 +1531,20 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 	case "c":
+		// Cancel a loading provider mid-query
+		if m.tabBarFocused && m.querying && m.activeTab > 0 && m.activeTab-1 < len(m.panels) {
+			panel := &m.panels[m.activeTab-1]
+			if panel.Status == StatusLoading {
+				panel.Status = StatusCancelled
+				panel.Content.WriteString("\n[Cancelled by user]")
+				panel.Viewport.SetContent(panel.Content.String())
+				if m.onCancelProvider != nil {
+					m.onCancelProvider(panel.Name)
+				}
+				m.chatStatusMsg = panel.Name + " cancelled"
+				return m, nil
+			}
+		}
 		if m.errorRecord != nil && m.tabBarFocused {
 			errText := m.errorRecord.Summary + "\n" + m.errorRecord.Detail
 			if err := copyToClipboard(errText); err == nil {
@@ -1809,7 +1823,8 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 					m.undoStack = nil
 					m.redoStack = nil
 					m.sessionAllowed = nil   // clear session-level approvals
-					m.sessionNameGen++       // prevent stale auto-names but keep current name
+					m.sessionName = ""       // clear session name
+					m.sessionNameGen++       // prevent stale auto-names
 					m.tokenUsage = nil       // clear status bar token display
 					m.lastWarningBand = 0    // reset context pressure warnings
 					m.consensusContent.Reset()
@@ -2027,6 +2042,27 @@ func (m Model) updateSettings(msg tea.KeyMsg) (Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case "x":
+		// Toggle disable/enable on selected provider
+		if !m.mcpSettingsFocused && providerCount > 0 && m.cfg != nil {
+			p := &m.cfg.Providers[m.settingsCursor]
+			if p.Primary {
+				m.settingsMsg = m.styles.StatusUnhealthy.Render(
+					"Cannot disable the primary provider.")
+				return m, nil
+			}
+			p.Disabled = !p.Disabled
+			_ = m.cfg.Save()
+			if p.Disabled {
+				m.settingsMsg = m.styles.Dimmed.Render(p.Name + " disabled")
+			} else {
+				m.settingsMsg = m.styles.StatusHealthy.Render(p.Name + " enabled")
+			}
+			if m.onConfigChanged != nil {
+				m.onConfigChanged(m.cfg)
+			}
+			return m, nil
+		}
 	case "d":
 		if m.mcpSettingsFocused {
 			if mcpCount > 0 {

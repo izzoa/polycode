@@ -33,6 +33,7 @@ type ProviderConfig struct {
 	Auth           AuthMethod   `yaml:"auth"`
 	Model          string       `yaml:"model"`
 	Primary        bool         `yaml:"primary,omitempty"`
+	Disabled       bool         `yaml:"disabled,omitempty"`
 	BaseURL        string       `yaml:"base_url,omitempty"`
 	MaxContext     int          `yaml:"max_context,omitempty"`
 	OAuthClientID  string       `yaml:"oauth_client_id,omitempty"`

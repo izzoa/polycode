@@ -444,13 +444,36 @@ OAuth tokens are automatically refreshed when they expire — no manual re-authe
 |-----|--------|
 | `Enter` | Submit prompt |
 | `Shift+Enter` | New line in input |
+| `↓` | Clear input (on last line) |
 | `Tab` | Accept command palette suggestion / toggle provider panels |
 | `↑` / `↓` | Cycle through input history (when input is empty) |
-| `m` (tab bar) | Toggle MCP dashboard (server status, tools, stats) |
-| `p` (tab bar) | Toggle consensus provenance panel |
+| `Ctrl+P` | Open command palette (search commands and files) |
+| `Ctrl+E` | Open external editor to compose prompt |
+| `Ctrl+T` | Switch color theme |
+| `Ctrl+G` | Toggle auto-scroll lock |
+| `Ctrl+H` | Toggle tool call concealment |
 | `Ctrl+S` | Open settings |
+| `@` | Attach file to prompt (fuzzy search) |
+| `!command` | Run shell command, inject output as context |
+| `j`/`k` (tab bar) | Scroll one line |
+| `d`/`u` (tab bar) | Half-page scroll |
+| `g`/`G` (tab bar) | Jump to top/bottom |
+| `y` (tab bar) | Copy last response to clipboard |
+| `t` (tab bar) | Toggle trace expansion |
+| `c` (tab bar) | Cancel selected provider during query |
+| `m` (tab bar) | Toggle MCP dashboard |
+| `p` (tab bar) | Toggle consensus provenance panel |
 | `?` | Show help overlay |
 | `Ctrl+C` | Quit |
+
+### Approval Prompt
+
+| Key | Action |
+|-----|--------|
+| `y` | Approve |
+| `n` / `Esc` | Reject |
+| `a` | Allow for session (blocked for destructive tools) |
+| `e` | Edit command/content before execution |
 
 ### Settings View
 
@@ -461,6 +484,7 @@ OAuth tokens are automatically refreshed when they expire — no manual re-authe
 | `a` | Add new provider |
 | `e` | Edit selected provider |
 | `d` | Delete selected provider |
+| `x` | Disable/enable selected provider |
 | `t` | Test selected provider connection |
 | `Esc` | Return to chat |
 

@@ -49,7 +49,7 @@ const (
 
 // BuildConsensusPrompt constructs the message slice sent to the primary
 // provider for synthesis. The mode controls the depth of analysis requested.
-func (e *Engine) BuildConsensusPrompt(originalPrompt string, responses map[string]string, mode SynthesisMode) []provider.Message {
+func (e *Engine) BuildConsensusPrompt(originalPrompt string, responses map[string]string, mode SynthesisMode, history ...provider.Message) []provider.Message {
 	var b strings.Builder
 
 	b.WriteString("You are synthesizing responses from multiple AI models to produce the best possible answer.\n\n")
@@ -106,12 +106,19 @@ func (e *Engine) BuildConsensusPrompt(originalPrompt string, responses map[strin
 		b.WriteString("[Key facts, code references, or documentation cited by any model]\n")
 	}
 
-	return []provider.Message{
-		{
-			Role:    provider.RoleUser,
-			Content: b.String(),
-		},
+	// Prepend conversation history so the synthesis model has multi-turn context.
+	// Only include messages before the current user prompt (the last user message
+	// is replaced by the synthesis prompt which includes it).
+	var msgs []provider.Message
+	for _, m := range history {
+		// Skip the last user message — it's embedded in the synthesis prompt
+		msgs = append(msgs, m)
 	}
+	msgs = append(msgs, provider.Message{
+		Role:    provider.RoleUser,
+		Content: b.String(),
+	})
+	return msgs
 }
 
 // Synthesize sends the consensus prompt to the primary provider and returns
@@ -122,10 +129,11 @@ func (e *Engine) Synthesize(
 	originalPrompt string,
 	responses map[string]string,
 	opts provider.QueryOpts,
+	history ...provider.Message,
 ) (<-chan provider.StreamChunk, error) {
 	ctx, cancel := context.WithTimeout(ctx, e.timeout)
 
-	messages := e.BuildConsensusPrompt(originalPrompt, responses, e.mode)
+	messages := e.BuildConsensusPrompt(originalPrompt, responses, e.mode, history...)
 
 	ch, err := e.primary.Query(ctx, messages, opts)
 	if err != nil {
