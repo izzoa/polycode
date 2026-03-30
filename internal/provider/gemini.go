@@ -250,13 +250,14 @@ func (p *GeminiProvider) Query(ctx context.Context, messages []Message, opts Que
 	}
 
 	// Map tool definitions if provided.
+	// Gemini rejects "$schema" in parameter schemas, so strip it.
 	if len(opts.Tools) > 0 {
 		var decls []geminiFuncDecl
 		for _, t := range opts.Tools {
 			decls = append(decls, geminiFuncDecl{
 				Name:        t.Name,
 				Description: t.Description,
-				Parameters:  t.Parameters,
+				Parameters:  stripSchemaKey(t.Parameters),
 			})
 		}
 		reqBody.Tools = []geminiToolDef{{FunctionDeclarations: decls}}
@@ -379,4 +380,22 @@ func (p *GeminiProvider) readSSE(ctx context.Context, body io.ReadCloser, ch cha
 	// Stream ended without a STOP/FUNCTION_CALL finish reason — send Done
 	// so the consumer doesn't hang waiting for a terminal chunk.
 	ch <- StreamChunk{Done: true, InputTokens: inputTokens, OutputTokens: outputTokens}
+}
+
+// stripSchemaKey removes "$schema" from a tool parameters map. Gemini's API
+// rejects unknown fields like "$schema" that MCP servers include in their
+// JSON Schema definitions. Returns the input unchanged if it's not a map.
+func stripSchemaKey(params any) any {
+	m, ok := params.(map[string]any)
+	if !ok {
+		return params
+	}
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		if k == "$schema" {
+			continue
+		}
+		out[k] = v
+	}
+	return out
 }

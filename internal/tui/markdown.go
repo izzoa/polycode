@@ -6,6 +6,7 @@ import (
 )
 
 var mdRenderer *glamour.TermRenderer
+var mdRenderWidth int // current word-wrap width (0 = no wrap)
 
 func init() {
 	mdRenderer = buildMarkdownRenderer(PolycodeDefault)
@@ -99,13 +100,13 @@ func buildMarkdownRenderer(t Theme) *glamour.TermRenderer {
 
 	r, err := glamour.NewTermRenderer(
 		glamour.WithStyles(style),
-		glamour.WithWordWrap(0),
+		glamour.WithWordWrap(mdRenderWidth),
 	)
 	if err != nil {
 		// Fall back to auto style if custom fails
 		r, _ = glamour.NewTermRenderer(
 			glamour.WithAutoStyle(),
-			glamour.WithWordWrap(0),
+			glamour.WithWordWrap(mdRenderWidth),
 		)
 	}
 	return r
@@ -113,6 +114,16 @@ func buildMarkdownRenderer(t Theme) *glamour.TermRenderer {
 
 // rebuildMarkdownRenderer rebuilds the global renderer with the given theme.
 func rebuildMarkdownRenderer(t Theme) {
+	mdRenderer = buildMarkdownRenderer(t)
+}
+
+// setMarkdownWidth updates the word-wrap width for the markdown renderer.
+// Called from updateLayout when the viewport width changes.
+func setMarkdownWidth(width int, t Theme) {
+	if width == mdRenderWidth {
+		return
+	}
+	mdRenderWidth = width
 	mdRenderer = buildMarkdownRenderer(t)
 }
 

@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.23.0] - 2026-03-30
+
+### Changed
+- **God-File Refactoring**: Split `cmd/polycode/app.go` (2,428 → 437 lines) into `app_query.go`, `app_handlers.go`, `app_mcp.go`, `app_session.go`. Split `internal/tui/update.go` (2,927 → 920 lines) into `update_chat.go`, `update_approval.go`, `update_settings.go`, `update_palette.go`. Zero behavioral changes — pure code organization.
+
+### Fixed
+- **Gemini Tool Schema Rejection**: Strip `$schema` from MCP tool parameter schemas before sending to Gemini API, which rejects unknown JSON Schema fields.
+- **Markdown Word Wrap in Split Pane**: Text now wraps at the viewport width instead of being clipped. The glamour renderer dynamically adjusts word-wrap width on layout changes.
+- **Disabled Provider Tab Display**: Disabled providers now show with strikethrough in the tab bar on launch, not only after visiting settings.
+
 ## [1.22.0] - 2026-03-30
 
 ### Added

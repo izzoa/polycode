@@ -102,6 +102,8 @@ func (m *Model) initWizardForAdd() {
 	m.wizardTesting = false
 	m.wizardTestResult = ""
 	m.wizardInput.Reset()
+	m.wizardInput.EchoMode = textinput.EchoNormal
+	m.wizardInput.EchoCharacter = 0
 	m.wizardInput.Blur()
 }
 
@@ -181,6 +183,8 @@ func (m *Model) prepareStepUI() {
 		}
 	case stepName:
 		m.wizardInput.Placeholder = "provider name"
+		m.wizardInput.EchoMode = textinput.EchoNormal // reset from password mode
+		m.wizardInput.EchoCharacter = 0
 		if m.wizardData.Name != "" {
 			m.wizardInput.SetValue(m.wizardData.Name)
 		} else {

@@ -585,6 +585,8 @@ func (m *Model) SetConfig(cfg *config.Config) {
 		return
 	}
 	m.cfg = cfg
+	// Rebuild panels so disabled providers appear with strikethrough on launch
+	m.rebuildPanelsFromConfig()
 	if cfg.Theme != "" {
 		t := ThemeByName(cfg.Theme)
 		m.theme = t
