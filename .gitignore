@@ -16,6 +16,9 @@ mem.prof
 .DS_Store
 Thumbs.db
 
+# OpenSpec change artifacts (local workflow, not tracked)
+openspec/
+
 # IDE / AI editor configs
 .idea/
 .vscode/
