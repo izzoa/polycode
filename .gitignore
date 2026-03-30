@@ -28,6 +28,7 @@ Thumbs.db
 .cursor/
 .gemini/
 .opencode/
+.maestri/
 
 # Polycode runtime data (user-specific, not project files)
 model_metadata.json
