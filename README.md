@@ -429,7 +429,7 @@ When adding a provider via the settings wizard (`Ctrl+S` → `a`), you'll be pro
 ### Credential storage
 
 1. **OS keyring** (preferred) — macOS Keychain, Linux secret-service/libsecret
-2. **Encrypted file** (fallback) — `~/.config/polycode/credentials.json` when keyring is unavailable
+2. **Encrypted file** (fallback) — `~/.config/polycode/credentials.json` (AES-256-GCM) when keyring is unavailable
 3. **No credentials** — for `auth: none` providers (local models)
 
 OAuth tokens are automatically refreshed when they expire — no manual re-authentication needed.
@@ -717,7 +717,7 @@ Yes. The primary participates in fan-out (generating its own independent respons
 Yes. Any model served via an OpenAI-compatible API (Ollama, vLLM, LM Studio, llama.cpp server) works with `type: openai_compatible` and `auth: none`.
 
 **Where are my API keys stored?**
-In your OS keyring (macOS Keychain, Linux secret-service). If the keyring isn't available, they fall back to `~/.config/polycode/credentials.json`. Keys are never stored in the config file.
+In your OS keyring (macOS Keychain, Linux secret-service). If the keyring isn't available, they fall back to `~/.config/polycode/credentials.json`, where they are encrypted with AES-256-GCM using a locally-generated key. Keys are never stored in the config file.
 
 **Do all modes query all providers?**
 Yes. Quick, balanced, and thorough modes all fan out to every configured provider. The mode controls how deeply the primary model analyzes and synthesizes the responses, and how much reasoning effort each provider applies.

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-03-30
+
+### Added
+- **AES-256-GCM Credential Encryption**: File-backed credential store now encrypts API keys with AES-256-GCM instead of base64 encoding. Uses a randomly-generated 32-byte key stored in `~/.config/polycode/.keyfile`. Zero new dependencies (Go stdlib only). Existing base64-encoded credentials are migrated transparently on first read. Encrypted values use an `enc:` prefix to prevent accidental double-encryption.
+- **Consensus Source Citations**: Synthesis model now cites which provider(s) contributed each insight using `[Model: name]` inline markers across all synthesis modes (quick, balanced, thorough).
+
+### Fixed
+- **Shared State Race Condition**: Replaced bare variable access to mutable application state (`tracker`, `registry`, `healthy`, `primary`, `cfg`, `hookMgr`, `policyMgr`) with an `atomic.Pointer[appState]` pattern. Handlers now call `state.Load()` once to get a consistent snapshot, eliminating data races when config changes mid-query. MCP server removal no longer mutates the config slice in place.
+
 ## [1.21.0] - 2026-03-29
 
 ### Added

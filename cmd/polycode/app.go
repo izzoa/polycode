@@ -52,6 +52,19 @@ func (h *mcpHolder) set(c *mcp.MCPClient) {
 	h.client = c
 }
 
+// appState bundles mutable application state that can be replaced atomically
+// when the config changes. Handlers call state.Load() once at the top to get
+// a consistent snapshot for their entire lifetime — no partial state possible.
+type appState struct {
+	tracker   *tokens.TokenTracker
+	registry  *provider.Registry
+	healthy   []provider.Provider
+	primary   provider.Provider
+	cfg       *config.Config
+	hookMgr   *hooks.HookManager
+	policyMgr *permissions.PolicyManager
+}
+
 // conversationState maintains the full multi-turn dialogue context.
 type conversationState struct {
 	mu       sync.Mutex
@@ -250,6 +263,19 @@ func startTUI(cfg *config.Config) error {
 		messages: []provider.Message{systemPrompt},
 	}
 
+	// Bundle shared mutable state into an atomic pointer for safe concurrent access.
+	// After this point, handlers must use state.Load() instead of bare variable names.
+	var state atomic.Pointer[appState]
+	state.Store(&appState{
+		tracker:   tracker,
+		registry:  registry,
+		healthy:   healthy,
+		primary:   primary,
+		cfg:       cfg,
+		hookMgr:   hookMgr,
+		policyMgr: policyMgr,
+	})
+
 	// Create TUI model
 	model := tui.NewModel(names, primary.ID(), version)
 
@@ -368,26 +394,33 @@ func startTUI(cfg *config.Config) error {
 		}
 
 		// Rebuild tracker; provider selection happens per query via router
-		tracker = tokens.NewTracker(newProviderModels, newProviderLimits)
+		newTracker := tokens.NewTracker(newProviderModels, newProviderLimits)
 		// Re-wire cost tracking (was missing — caused cost display to break after config changes)
 		if metadataStore != nil {
-			tracker.SetCostFunc(func(model, providerType string, inputTokens, outputTokens int) float64 {
+			newTracker.SetCostFunc(func(model, providerType string, inputTokens, outputTokens int) float64 {
 				return metadataStore.CostForTokens(model, providerType, inputTokens, outputTokens)
 			})
 		}
 		for _, pc := range newCfg.Providers {
-			tracker.SetProviderType(pc.Name, string(pc.Type))
+			newTracker.SetProviderType(pc.Name, string(pc.Type))
 		}
-		registry = newRegistry
-		healthy = newHealthy
-		primary = newPrimary
-		cfg = newCfg
 
 		// Rebuild hooks and permissions from new config
-		hookMgr = hooks.NewHookManager(newCfg.Hooks)
-		if newPolicyMgr, err := permissions.LoadPolicies(workDir); err == nil {
-			policyMgr = newPolicyMgr
+		newHookMgr := hooks.NewHookManager(newCfg.Hooks)
+		newPolicyMgr := state.Load().policyMgr // keep old as fallback
+		if pm, err := permissions.LoadPolicies(workDir); err == nil {
+			newPolicyMgr = pm
 		}
+
+		state.Store(&appState{
+			tracker:   newTracker,
+			registry:  newRegistry,
+			healthy:   newHealthy,
+			primary:   newPrimary,
+			cfg:       newCfg,
+			hookMgr:   newHookMgr,
+			policyMgr: newPolicyMgr,
+		})
 
 		// Reconfigure MCP client if servers changed
 		if client := mcpH.get(); client != nil {
@@ -421,9 +454,10 @@ func startTUI(cfg *config.Config) error {
 	// Set up test provider handler
 	model.SetTestProviderHandler(func(providerName string) {
 		go func() {
+			s := state.Load()
 			start := time.Now()
 			var testProvider provider.Provider
-			for _, p := range registry.Providers() {
+			for _, p := range s.registry.Providers() {
 				if p.ID() == providerName {
 					testProvider = p
 					break
@@ -481,27 +515,28 @@ func startTUI(cfg *config.Config) error {
 	// Set up /plan handler for agent team pipeline
 	model.SetPlanHandler(func(request string) {
 		go func() {
+			s := state.Load()
 			program.Send(tui.QueryStartMsg{})
 
 			// Resolve providers for each role
 			roleProviders := map[agent.RoleType]string{
-				agent.RolePlanner:     cfg.Roles.Planner,
-				agent.RoleResearcher:  cfg.Roles.Researcher,
-				agent.RoleImplementer: cfg.Roles.Implementer,
-				agent.RoleTester:      cfg.Roles.Tester,
-				agent.RoleReviewer:    cfg.Roles.Reviewer,
+				agent.RolePlanner:     s.cfg.Roles.Planner,
+				agent.RoleResearcher:  s.cfg.Roles.Researcher,
+				agent.RoleImplementer: s.cfg.Roles.Implementer,
+				agent.RoleTester:      s.cfg.Roles.Tester,
+				agent.RoleReviewer:    s.cfg.Roles.Reviewer,
 			}
 
 			resolveProvider := func(role agent.RoleType) provider.Provider {
 				name := roleProviders[role]
 				if name != "" {
-					for _, p := range registry.Providers() {
+					for _, p := range s.registry.Providers() {
 						if p.ID() == name {
 							return p
 						}
 					}
 				}
-				return primary
+				return s.primary
 			}
 
 			// Build default pipeline: planner → researcher → reviewer
@@ -636,6 +671,7 @@ func startTUI(cfg *config.Config) error {
 	// Wire /mcp handler
 	model.SetMCPHandler(func(subcommand, args string) {
 		go func() {
+			s := state.Load()
 			mc := mcpH.get()
 			switch subcommand {
 			case "", "list":
@@ -802,26 +838,42 @@ func startTUI(cfg *config.Config) error {
 					program.Send(tui.ConsensusChunkMsg{Delta: "\nUsage: /mcp remove <name>\n", Done: true})
 					return
 				}
+				// Build a new servers slice without mutating the current config in place.
+				oldServers := s.cfg.MCP.Servers
+				var newServers []config.MCPServerConfig
 				found := false
-				for i, s := range cfg.MCP.Servers {
-					if s.Name == serverName {
-						cfg.MCP.Servers = append(cfg.MCP.Servers[:i], cfg.MCP.Servers[i+1:]...)
+				for _, srv := range oldServers {
+					if srv.Name == serverName {
 						found = true
-						break
+						continue
 					}
+					newServers = append(newServers, srv)
 				}
 				if !found {
 					program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nMCP server '%s' not found.\n", serverName), Done: true})
 					return
 				}
-				if err := cfg.Save(); err != nil {
+				// Shallow-copy the config, update the servers slice, and save.
+				newCfg := *s.cfg
+				newCfg.MCP.Servers = newServers
+				if err := newCfg.Save(); err != nil {
 					program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\nFailed to save config: %v\n", err), Done: true})
 					return
 				}
+				// Update the atomic state with the new config.
+				state.Store(&appState{
+					tracker:   s.tracker,
+					registry:  s.registry,
+					healthy:   s.healthy,
+					primary:   s.primary,
+					cfg:       &newCfg,
+					hookMgr:   s.hookMgr,
+					policyMgr: s.policyMgr,
+				})
 				// Apply at runtime — reconfigure with new server list
 				if mc != nil {
 					rctx, rcancel := context.WithTimeout(context.Background(), 15*time.Second)
-					if rErr := mc.Reconfigure(rctx, cfg.MCP.Servers); rErr != nil {
+					if rErr := mc.Reconfigure(rctx, newServers); rErr != nil {
 						log.Printf("Warning: MCP reconfigure after remove: %v", rErr)
 					}
 					rcancel()
@@ -879,6 +931,7 @@ func startTUI(cfg *config.Config) error {
 	// Wire /sessions handler
 	model.SetAutoNameSessionHandler(func(prompt string, gen int) {
 		go func() {
+			s := state.Load()
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			// Truncate prompt for naming to avoid large requests
@@ -887,7 +940,7 @@ func startTUI(cfg *config.Config) error {
 				namingInput = namingInput[:500]
 			}
 			namingPrompt := "Summarize this conversation topic in 3-5 words. Reply with only the short name, nothing else:\n\n" + namingInput
-			stream, err := primary.Query(ctx, []provider.Message{
+			stream, err := s.primary.Query(ctx, []provider.Message{
 				{Role: provider.RoleUser, Content: namingPrompt},
 			}, provider.QueryOpts{MaxTokens: 30})
 			if err != nil {
@@ -1172,7 +1225,7 @@ func startTUI(cfg *config.Config) error {
 		conv.messages = []provider.Message{systemPrompt}
 		conv.mu.Unlock()
 		// Reset token tracker for all providers so context checks start fresh
-		tracker.Reset()
+		state.Load().tracker.Reset()
 		// NOTE: Do NOT call program.Send() here — this runs synchronously inside
 		// Update(), so Send() would deadlock the Bubble Tea event loop.
 		// Token display is cleared by the TUI's /clear handler directly.
@@ -1243,11 +1296,12 @@ func startTUI(cfg *config.Config) error {
 	// Set up the submit handler that bridges TUI → pipeline
 	model.SetSubmitHandler(func(prompt string) {
 		go func() {
+			s := state.Load()
 			// Snapshot mode at query start for consistent use throughout.
 			queryMode := getMode()
 
 			// Fire pre-query hook
-			hookMgr.Run(hooks.PreQuery, hooks.HookContext{Prompt: prompt})
+			s.hookMgr.Run(hooks.PreQuery, hooks.HookContext{Prompt: prompt})
 
 			// Append user message to conversation
 			conv.append(provider.Message{
@@ -1261,7 +1315,7 @@ func startTUI(cfg *config.Config) error {
 			// Context auto-summarization: if the primary model is nearing
 			// its context limit (~80%), compress early conversation turns
 			// into a dense summary to free tokens.
-			primaryUsage := tracker.Get(primary.ID())
+			primaryUsage := s.tracker.Get(s.primary.ID())
 			if primaryUsage.Limit > 0 && len(messages) > 4 {
 				usagePct := float64(primaryUsage.LastInputTokens) / float64(primaryUsage.Limit) * 100
 				if usagePct >= 80 {
@@ -1301,9 +1355,9 @@ func startTUI(cfg *config.Config) error {
 			defer cancel()
 
 			// Re-select providers per query (adaptive routing)
-			queryProviders, routingReason := router.SelectProvidersWithReason(queryMode, healthy, primary.ID())
+			queryProviders, routingReason := router.SelectProvidersWithReason(queryMode, s.healthy, s.primary.ID())
 			if len(queryProviders) == 0 {
-				queryProviders = healthy
+				queryProviders = s.healthy
 				routingReason = "fallback: using all healthy providers"
 			}
 
@@ -1325,10 +1379,10 @@ func startTUI(cfg *config.Config) error {
 
 			queryPipeline := consensus.NewPipeline(
 				queryProviders,
-				primary,
-				cfg.Consensus.Timeout,
-				cfg.Consensus.MinResponses,
-				tracker,
+				s.primary,
+				s.cfg.Consensus.Timeout,
+				s.cfg.Consensus.MinResponses,
+				s.tracker,
 				synthesisMode,
 			)
 
@@ -1338,7 +1392,7 @@ func startTUI(cfg *config.Config) error {
 			// Only send tools to providers whose model supports structured tool
 			// calling according to litellm metadata.
 			toolCapable := make(map[string]bool)
-			for _, pc := range cfg.Providers {
+			for _, pc := range s.cfg.Providers {
 				if metadataStore != nil {
 					_, found := metadataStore.Lookup(pc.Model, string(pc.Type))
 					if found {
@@ -1421,7 +1475,7 @@ func startTUI(cfg *config.Config) error {
 				} else if chunk.Done {
 					// Non-primary providers are done after fan-out.
 					// The primary stays loading — synthesis etc. follow.
-					if providerID != primary.ID() {
+					if providerID != s.primary.ID() {
 						program.Send(tui.ProviderTraceMsg{
 							ProviderName: providerID,
 							Phase:        tui.PhaseFanout,
@@ -1465,11 +1519,11 @@ func startTUI(cfg *config.Config) error {
 				// Reconcile primary provider tab — mark it failed so it
 				// doesn't remain stuck in loading after a pipeline failure.
 				program.Send(tui.ProviderTraceMsg{
-					ProviderName: primary.ID(),
+					ProviderName: s.primary.ID(),
 					Phase:        tui.PhaseFanout,
 					Error:        err,
 				})
-				hookMgr.Run(hooks.OnError, hooks.HookContext{Prompt: prompt, Error: err.Error()})
+				s.hookMgr.Run(hooks.OnError, hooks.HookContext{Prompt: prompt, Error: err.Error()})
 				program.Send(tui.ConsensusChunkMsg{Error: err, Done: true})
 				program.Send(tui.QueryDoneMsg{})
 			if mc := mcpH.get(); mc != nil {
@@ -1481,7 +1535,7 @@ func startTUI(cfg *config.Config) error {
 			// Update token tracker and log telemetry for fan-out
 			if fanOutResult != nil {
 				for id, usage := range fanOutResult.Usage {
-					tracker.Add(id, usage)
+					s.tracker.Add(id, usage)
 					if tlog != nil {
 						success := true
 						latencyMS := fanOutResult.Latencies[id].Milliseconds()
@@ -1551,14 +1605,14 @@ func startTUI(cfg *config.Config) error {
 			// text as a "synthesis" stream. We must not duplicate it as synthesis.
 			primaryOnlyDirect := fanOutResult != nil &&
 				len(fanOutResult.Responses) == 1 &&
-				fanOutResult.Responses[primary.ID()] != ""
+				fanOutResult.Responses[s.primary.ID()] != ""
 
 			// Stream consensus output, accumulate response, detect tool calls.
 			// Mirror synthesis chunks into the primary provider tab.
 			var fullResponse string
 			var consensusUsage tokens.Usage
 			var pendingToolCalls []provider.ToolCall
-			primaryID := primary.ID()
+			primaryID := s.primary.ID()
 			for chunk := range stream {
 				if chunk.Error != nil {
 					program.Send(tui.ConsensusChunkMsg{Error: chunk.Error})
@@ -1608,7 +1662,7 @@ func startTUI(cfg *config.Config) error {
 
 			// Track consensus synthesis usage on the primary
 			if consensusUsage.InputTokens > 0 || consensusUsage.OutputTokens > 0 {
-				tracker.Add(primary.ID(), consensusUsage)
+				s.tracker.Add(s.primary.ID(), consensusUsage)
 			}
 
 			// Parse and surface consensus provenance data to TUI
@@ -1651,7 +1705,7 @@ func startTUI(cfg *config.Config) error {
 						toolName == "file_delete" || toolName == "file_rename" || toolName == "shell_exec"
 
 					// Check permission policy for this specific tool
-					policy := policyMgr.Check(toolName)
+					policy := s.policyMgr.Check(toolName)
 					switch policy {
 					case permissions.PolicyAllow:
 						if mutating {
@@ -1728,7 +1782,7 @@ func startTUI(cfg *config.Config) error {
 					if tlog != nil {
 						a := result.Approved
 						tlog.Log(telemetry.Event{
-							ProviderID: primary.ID(),
+							ProviderID: s.primary.ID(),
 							EventType:  telemetry.EventUserFeedback,
 							ToolName:   toolName,
 							Accepted:   &a,
@@ -1744,7 +1798,7 @@ func startTUI(cfg *config.Config) error {
 					// MCP tool names are "mcp_{server}_{tool}" — resolved via lookup map
 					if mc := mcpH.get(); mc != nil && len(call.Name) > 4 && call.Name[:4] == "mcp_" {
 						if serverName, toolName, ok := mc.ResolveToolCall(call.Name); ok {
-							policy := policyMgr.Check(call.Name)
+							policy := s.policyMgr.Check(call.Name)
 							if policy == permissions.PolicyDeny {
 								return "", fmt.Errorf("MCP tool %q denied by policy", call.Name)
 							}
@@ -1765,7 +1819,7 @@ func startTUI(cfg *config.Config) error {
 					return "", fmt.Errorf("unknown tool: %s", call.Name)
 				})
 
-				toolLoop := action.NewToolLoop(executor, primary)
+				toolLoop := action.NewToolLoop(executor, s.primary)
 				toolLoop.SetToolDoneCallback(func(toolName string, duration time.Duration, errStr string) {
 					program.Send(tui.ToolCallDoneMsg{
 						ToolName: toolName,
@@ -1852,7 +1906,7 @@ func startTUI(cfg *config.Config) error {
 				// Run verification only if the tool loop completed successfully
 				// and files were actually written.
 				if toolLoopOK && wroteFiles {
-					verifyCmd := cfg.Consensus.VerifyCommand
+					verifyCmd := s.cfg.Consensus.VerifyCommand
 					if verifyCmd == "" {
 						verifyCmd = action.DetectVerifyCommand(workDir)
 					}
@@ -1904,7 +1958,7 @@ func startTUI(cfg *config.Config) error {
 				}
 
 				// Fire post-tool hook
-				hookMgr.Run(hooks.PostTool, hooks.HookContext{
+				s.hookMgr.Run(hooks.PostTool, hooks.HookContext{
 					Prompt:   prompt,
 					Response: toolResponse,
 				})
@@ -1942,13 +1996,13 @@ func startTUI(cfg *config.Config) error {
 			}
 
 			// Fire post-query hook
-			hookMgr.Run(hooks.PostQuery, hooks.HookContext{
+			s.hookMgr.Run(hooks.PostQuery, hooks.HookContext{
 				Prompt:   prompt,
 				Response: fullResponse,
 			})
 
 			// Send updated token snapshot to TUI
-			program.Send(tui.TokenUpdateMsg{Usage: tracker.Summary()})
+			program.Send(tui.TokenUpdateMsg{Usage: s.tracker.Summary()})
 
 			// Auto-save session to disk
 			go func() {
@@ -1972,7 +2026,7 @@ func startTUI(cfg *config.Config) error {
 					trace = &config.ConsensusTrace{
 						RoutingMode:    string(queryMode),
 						RoutingReason:  routingReason,
-						SynthesisModel: primary.ID(),
+						SynthesisModel: s.primary.ID(),
 					}
 					for _, p := range queryProviders {
 						trace.Providers = append(trace.Providers, p.ID())
@@ -2054,7 +2108,7 @@ func startTUI(cfg *config.Config) error {
 
 	// Set up MCP dashboard refresh handler.
 	model.SetMCPDashboardRefreshHandler(func() {
-		go sendMCPDashboardData(program, mcpH, cfg)
+		go sendMCPDashboardData(program, mcpH, state.Load().cfg)
 	})
 
 	// Set up MCP registry handlers for the wizard browse step.

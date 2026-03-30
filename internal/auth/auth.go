@@ -23,7 +23,7 @@ type Store interface {
 
 // NewStore returns a keyring-backed store. If the system keyring is
 // unavailable it falls back to a file-backed store that persists
-// base64-encoded credentials to ~/.config/polycode/credentials.json.
+// AES-256-GCM encrypted credentials to ~/.config/polycode/credentials.json.
 func NewStore() Store {
 	// Probe the keyring with a harmless get to see if it is functional.
 	_, err := keyring.Get(serviceName, "__probe__")

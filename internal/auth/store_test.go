@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -189,7 +190,7 @@ func TestFileStore_RawFileContent(t *testing.T) {
 		t.Fatalf("Set: %v", err)
 	}
 
-	// Read the raw file and verify JSON structure with base64 values.
+	// Read the raw file and verify it contains encrypted data.
 	data, err := os.ReadFile(s.path)
 	if err != nil {
 		t.Fatalf("reading raw file: %v", err)
@@ -205,12 +206,28 @@ func TestFileStore_RawFileContent(t *testing.T) {
 		t.Fatal("expected 'openai' key in raw JSON")
 	}
 
-	decoded, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		t.Fatalf("base64 decode: %v", err)
+	// The raw value must carry the "enc:" prefix.
+	if !strings.HasPrefix(encoded, "enc:") {
+		t.Fatal("raw value missing enc: prefix — expected encrypted")
 	}
-	if string(decoded) != "sk-raw-test" {
-		t.Fatalf("raw file value decoded to %q, want %q", string(decoded), "sk-raw-test")
+
+	// The base64 payload should have enough bytes for nonce + ciphertext + tag.
+	blob, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(encoded, "enc:"))
+	if err != nil {
+		t.Fatalf("base64 decode of encrypted value: %v", err)
+	}
+	// AES-GCM: 12-byte nonce + 16-byte tag + at least 1 byte ciphertext = 29 min.
+	if len(blob) < 29 {
+		t.Fatalf("encrypted blob too short: %d bytes", len(blob))
+	}
+
+	// Verify round-trip via Get.
+	got, err := s.Get("openai")
+	if err != nil {
+		t.Fatalf("Get after encrypted Set: %v", err)
+	}
+	if got != "sk-raw-test" {
+		t.Fatalf("expected %q, got %q", "sk-raw-test", got)
 	}
 }
 
@@ -308,6 +325,162 @@ func TestFileStore_ConcurrentAccess(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+func TestFileStore_KeyFileCreation(t *testing.T) {
+	s := newTestFileStore(t)
+
+	keyPath := filepath.Join(filepath.Dir(s.path), ".keyfile")
+	if _, err := os.Stat(keyPath); !os.IsNotExist(err) {
+		t.Fatal("keyfile should not exist before first use")
+	}
+
+	if err := s.Set("test", "secret"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	info, err := os.Stat(keyPath)
+	if err != nil {
+		t.Fatalf("Stat keyfile: %v", err)
+	}
+	if info.Size() != 32 {
+		t.Fatalf("expected 32-byte key, got %d bytes", info.Size())
+	}
+	if perm := info.Mode().Perm(); perm != 0600 {
+		t.Fatalf("expected keyfile permissions 0600, got %04o", perm)
+	}
+}
+
+func TestFileStore_KeyFileReuse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "credentials.json")
+
+	s1 := &fileStore{path: path}
+	if err := s1.Set("provider", "my-secret"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	// A second fileStore instance on the same dir should decrypt successfully.
+	s2 := &fileStore{path: path}
+	got, err := s2.Get("provider")
+	if err != nil {
+		t.Fatalf("Get from second instance: %v", err)
+	}
+	if got != "my-secret" {
+		t.Fatalf("expected %q, got %q", "my-secret", got)
+	}
+}
+
+func TestFileStore_MigrationFromBase64(t *testing.T) {
+	s := newTestFileStore(t)
+
+	// Write a legacy base64-encoded credentials file.
+	legacy := map[string]string{
+		"openai": base64.StdEncoding.EncodeToString([]byte("sk-legacy-key")),
+	}
+	data, err := json.MarshalIndent(legacy, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(s.path), 0700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(s.path, data, 0600); err != nil {
+		t.Fatalf("write legacy file: %v", err)
+	}
+
+	// Get should return the legacy value via migration.
+	got, err := s.Get("openai")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got != "sk-legacy-key" {
+		t.Fatalf("expected %q, got %q", "sk-legacy-key", got)
+	}
+
+	// The file should now be re-encrypted.
+	rawData, err := os.ReadFile(s.path)
+	if err != nil {
+		t.Fatalf("reading raw file: %v", err)
+	}
+	var raw map[string]string
+	if err := json.Unmarshal(rawData, &raw); err != nil {
+		t.Fatalf("parsing raw JSON: %v", err)
+	}
+	if !strings.HasPrefix(raw["openai"], "enc:") {
+		t.Fatal("credential was not re-encrypted after migration")
+	}
+
+	// A subsequent Get should work (now decrypting the re-encrypted value).
+	got2, err := s.Get("openai")
+	if err != nil {
+		t.Fatalf("Get after migration: %v", err)
+	}
+	if got2 != "sk-legacy-key" {
+		t.Fatalf("expected %q after migration, got %q", "sk-legacy-key", got2)
+	}
+}
+
+func TestFileStore_MigrationMultipleKeys(t *testing.T) {
+	s := newTestFileStore(t)
+
+	legacy := map[string]string{
+		"openai":    base64.StdEncoding.EncodeToString([]byte("sk-openai")),
+		"anthropic": base64.StdEncoding.EncodeToString([]byte("sk-anthropic")),
+	}
+	data, _ := json.MarshalIndent(legacy, "", "  ")
+	os.MkdirAll(filepath.Dir(s.path), 0700)
+	os.WriteFile(s.path, data, 0600)
+
+	for name, want := range map[string]string{"openai": "sk-openai", "anthropic": "sk-anthropic"} {
+		got, err := s.Get(name)
+		if err != nil {
+			t.Fatalf("Get(%q): %v", name, err)
+		}
+		if got != want {
+			t.Fatalf("Get(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestFileStore_EncryptDecryptRoundTrip(t *testing.T) {
+	s := newTestFileStore(t)
+
+	cases := []string{
+		"simple-key",
+		"",
+		"sk-ant-api03-very-long-key-with-special-chars!@#$%^&*()",
+		"unicode: \u3053\u3093\u306b\u3061\u306f\u4e16\u754c",
+	}
+	for _, want := range cases {
+		encrypted, err := s.encrypt(want)
+		if err != nil {
+			t.Fatalf("encrypt(%q): %v", want, err)
+		}
+		got, err := s.decrypt(encrypted)
+		if err != nil {
+			t.Fatalf("decrypt(%q): %v", want, err)
+		}
+		if got != want {
+			t.Fatalf("round-trip failed: got %q, want %q", got, want)
+		}
+	}
+}
+
+func TestFileStore_EncryptProducesUniqueOutput(t *testing.T) {
+	s := newTestFileStore(t)
+
+	enc1, err := s.encrypt("same-secret")
+	if err != nil {
+		t.Fatalf("encrypt 1: %v", err)
+	}
+	enc2, err := s.encrypt("same-secret")
+	if err != nil {
+		t.Fatalf("encrypt 2: %v", err)
+	}
+	if enc1 == enc2 {
+		t.Fatal("two encryptions of the same plaintext produced identical ciphertext")
+	}
 }
 
 // ---------------------------------------------------------------------------
