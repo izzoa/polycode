@@ -46,9 +46,10 @@ type StreamChunk struct {
 
 // ToolCall represents a tool invocation from the model.
 type ToolCall struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	Arguments        string `json:"arguments"`
+	ThoughtSignature string `json:"thought_signature,omitempty"` // Gemini thought signature for round-tripping
 }
 
 // ToolDefinition defines a tool the model can call.

@@ -112,6 +112,7 @@ type geminiPart struct {
 	Text             string                `json:"text,omitempty"`
 	FunctionCall     *geminiFunctionCall   `json:"functionCall,omitempty"`
 	FunctionResponse *geminiFunctionResp   `json:"functionResponse,omitempty"`
+	ThoughtSignature string                `json:"thoughtSignature,omitempty"`
 }
 
 // geminiFunctionCall represents a function call from the model.
@@ -213,6 +214,7 @@ func (p *GeminiProvider) Query(ctx context.Context, messages []Message, opts Que
 						Name: tc.Name,
 						Args: args,
 					},
+					ThoughtSignature: tc.ThoughtSignature,
 				})
 			}
 			contents = append(contents, geminiContent{
@@ -359,9 +361,10 @@ func (p *GeminiProvider) readSSE(ctx context.Context, body io.ReadCloser, ch cha
 				toolCallCounter++
 				args, _ := json.Marshal(part.FunctionCall.Args)
 				toolCalls = append(toolCalls, ToolCall{
-					ID:        fmt.Sprintf("gemini_call_%s_%d", part.FunctionCall.Name, toolCallCounter),
-					Name:      part.FunctionCall.Name,
-					Arguments: string(args),
+					ID:               fmt.Sprintf("gemini_call_%s_%d", part.FunctionCall.Name, toolCallCounter),
+					Name:             part.FunctionCall.Name,
+					Arguments:        string(args),
+					ThoughtSignature: part.ThoughtSignature,
 				})
 			}
 		}

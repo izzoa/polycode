@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.23.2] - 2026-04-02
+
+### Fixed
+- **Gemini Thought Signature Round-Tripping**: Capture and re-send `thoughtSignature` on `functionCall` parts in conversation history. Gemini's API now requires this field for tool calls to work correctly; omitting it caused a 400 INVALID_ARGUMENT error.
+
 ## [1.23.0] - 2026-03-30
 
 ### Changed
