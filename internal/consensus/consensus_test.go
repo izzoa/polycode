@@ -41,6 +41,47 @@ func TestBuildConsensusPrompt(t *testing.T) {
 	}
 }
 
+func TestCitationReminderAllModes(t *testing.T) {
+	e := NewEngine(nil, 0, 0)
+	responses := map[string]string{
+		"alpha": "Response A",
+	}
+
+	tests := []struct {
+		name string
+		mode SynthesisMode
+	}{
+		{"quick", SynthesisQuick},
+		{"balanced", SynthesisBalanced},
+		{"thorough", SynthesisThorough},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			msgs := e.BuildConsensusPrompt("test question", responses, tc.mode)
+			content := msgs[0].Content
+
+			// Citation rule should appear near the start
+			if !strings.Contains(content, "IMPORTANT: Always cite") {
+				t.Error("prompt should contain citation rule")
+			}
+
+			// Reminder should appear and be at the tail of the prompt
+			reminderText := "REMINDER: You MUST include [Model: name]"
+			if !strings.Contains(content, reminderText) {
+				t.Errorf("prompt should contain citation reminder")
+			}
+			reminderIdx := strings.LastIndex(content, reminderText)
+			trailing := strings.TrimSpace(content[reminderIdx+len(reminderText):])
+			// Only the remainder of the reminder sentence should follow — no
+			// section templates after it.
+			if strings.Contains(trailing, "## ") {
+				t.Error("citation reminder should appear after all section templates")
+			}
+		})
+	}
+}
+
 func TestBuildConsensusPromptDeterministicOrder(t *testing.T) {
 	e := NewEngine(nil, 0, 0)
 

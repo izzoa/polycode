@@ -70,48 +70,56 @@ func (e *Engine) BuildConsensusPrompt(originalPrompt string, responses map[strin
 		b.WriteString("\n---\n\n")
 	}
 
-	// Common citation instruction included in all modes.
+	// Common citation instruction included in all modes. Placed both before
+	// and after the section templates to maximise compliance (models attend
+	// more to the beginning and end of the prompt).
 	const citationRule = "IMPORTANT: Always cite which model(s) contributed each key insight or recommendation using [Model: name] inline. " +
 		"For example: \"Use AES-256-GCM [Model: gpt-4o] with a rotating keyfile [Model: claude-sonnet, Model: gemini-pro].\" " +
 		"Every substantive claim or suggestion must have at least one source citation.\n\n"
+
+	const citationReminder = "\nREMINDER: You MUST include [Model: name] inline citations throughout your response. " +
+		"A response without citations is incomplete. Attribute every key point to its source model(s).\n"
 
 	switch mode {
 	case SynthesisQuick:
 		b.WriteString(citationRule)
 		b.WriteString("Produce a concise, direct answer combining the best insights from all models. ")
 		b.WriteString("Do not use structured sections — just give the answer. Be brief and actionable.\n")
+		b.WriteString(citationReminder)
 
 	case SynthesisThorough:
 		b.WriteString(citationRule)
 		b.WriteString("Produce a deep, thorough synthesis. Think step by step.\n\n")
 		b.WriteString("## Recommendation\n")
-		b.WriteString("[Your synthesized answer — combine the best insights from all models. Be comprehensive. Cite which model(s) contributed each point.]\n\n")
+		b.WriteString("[Your synthesized answer — combine the best insights from all models. Be comprehensive. Cite which model(s) contributed each point using [Model: name].]\n\n")
 		b.WriteString("## Confidence: [high/medium/low]\n\n")
 		b.WriteString("## Reasoning\n")
-		b.WriteString("[Walk through your reasoning step by step. Explain WHY this is the best answer, not just WHAT it is.]\n\n")
+		b.WriteString("[Walk through your reasoning step by step. Explain WHY this is the best answer, not just WHAT it is. Cite sources with [Model: name].]\n\n")
 		b.WriteString("## Agreement\n")
-		b.WriteString("[Points where all or most models agree, with specifics. Cite which models agreed.]\n\n")
+		b.WriteString("[Points where all or most models agree, with specifics. Cite which models agreed using [Model: name].]\n\n")
 		b.WriteString("## Minority Report\n")
-		b.WriteString("[Dissenting views worth considering, with the model name and reasoning. Evaluate whether the dissent has merit. Write \"None — all models agreed\" if there are no disagreements.]\n\n")
+		b.WriteString("[Dissenting views worth considering, identified with [Model: name] and reasoning. Evaluate whether the dissent has merit. Write \"None — all models agreed\" if there are no disagreements.]\n\n")
 		b.WriteString("## Trade-offs & Alternatives\n")
-		b.WriteString("[Alternative approaches considered by any model. Pros and cons of each. When would you choose differently? Cite sources.]\n\n")
+		b.WriteString("[Alternative approaches considered by any model. Pros and cons of each. When would you choose differently? Cite sources with [Model: name].]\n\n")
 		b.WriteString("## Verification\n")
-		b.WriteString("[Cross-check key claims against each other. Flag any factual conflicts between models. Note anything that should be verified.]\n\n")
+		b.WriteString("[Cross-check key claims against each other. Flag any factual conflicts between models using [Model: name]. Note anything that should be verified.]\n\n")
 		b.WriteString("## Evidence\n")
-		b.WriteString("[Key facts, code references, documentation, or examples cited by any model]\n")
+		b.WriteString("[Key facts, code references, documentation, or examples cited by any model, attributed with [Model: name]]\n")
+		b.WriteString(citationReminder)
 
 	default: // SynthesisBalanced
 		b.WriteString(citationRule)
 		b.WriteString("Analyze all responses and produce a synthesis with this structure:\n\n")
 		b.WriteString("## Recommendation\n")
-		b.WriteString("[Your synthesized answer — the best response combining insights from all models. Cite which model(s) contributed each point.]\n\n")
+		b.WriteString("[Your synthesized answer — the best response combining insights from all models. Cite which model(s) contributed each point using [Model: name].]\n\n")
 		b.WriteString("## Confidence: [high/medium/low]\n\n")
 		b.WriteString("## Agreement\n")
-		b.WriteString("[Points where all or most models agree. Cite which models agreed.]\n\n")
+		b.WriteString("[Points where all or most models agree. Cite which models agreed using [Model: name].]\n\n")
 		b.WriteString("## Minority Report\n")
-		b.WriteString("[Dissenting views worth considering, with the model name and reasoning. Write \"None — all models agreed\" if there are no disagreements.]\n\n")
+		b.WriteString("[Dissenting views worth considering, identified with [Model: name] and reasoning. Write \"None — all models agreed\" if there are no disagreements.]\n\n")
 		b.WriteString("## Evidence\n")
-		b.WriteString("[Key facts, code references, or documentation cited by any model]\n")
+		b.WriteString("[Key facts, code references, or documentation cited by any model, attributed with [Model: name]]\n")
+		b.WriteString(citationReminder)
 	}
 
 	// Prepend conversation history so the synthesis model has multi-turn context.

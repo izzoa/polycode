@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.23.3] - 2026-04-03
+
+### Fixed
+- **Consensus Citation Compliance**: Synthesizer was ignoring the `[Model: name]` citation instruction because it appeared only before the section templates and got buried. Added a citation reminder after the templates (primacy-recency pattern) and normalized all section placeholders to explicitly require `[Model: name]` format. Covers all three synthesis modes (quick, balanced, thorough).
+
 ## [1.23.2] - 2026-04-02
 
 ### Fixed
