@@ -646,12 +646,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if rawResponse == "" {
 			rawResponse = m.consensusContent.String() // fallback if Done never fired
 		}
+		// Capture provider order and primary at time of exchange.
+		provOrder := make([]string, len(m.panels))
+		var primaryName string
+		for i, p := range m.panels {
+			provOrder[i] = p.Name
+			if p.IsPrimary {
+				primaryName = p.Name
+			}
+		}
 		exchange := Exchange{
 			Prompt:             m.currentPrompt,
 			ConsensusResponse:  rawResponse,
 			IndividualResponse: make(map[string]string),
 			ProviderStatuses:   make(map[string]ProviderStatus),
 			ProviderTraces:     make(map[string][]TraceSection),
+			ProviderOrder:      provOrder,
+			PrimaryProvider:    primaryName,
 			ToolCalls:          append([]ToolCallRecord(nil), m.toolCalls...),
 		}
 		for _, p := range m.panels {

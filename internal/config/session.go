@@ -57,6 +57,9 @@ type SessionExchange struct {
 	Prompt            string                              `json:"prompt"`
 	ConsensusResponse string                              `json:"consensus_response"`
 	Individual        map[string]string                   `json:"individual,omitempty"`
+	ProviderStatuses  map[string]string                   `json:"provider_statuses,omitempty"`  // provider name → status string (e.g., "done", "failed")
+	ProviderOrder     []string                            `json:"provider_order,omitempty"`     // provider names in panel order at time of exchange
+	PrimaryProvider   string                              `json:"primary_provider,omitempty"`   // primary provider name at time of exchange
 	ProviderTraces    map[string][]ProviderTraceSection    `json:"provider_traces,omitempty"`
 	Trace             *ConsensusTrace                     `json:"trace,omitempty"`
 }

@@ -268,6 +268,8 @@ Type `/` to open the command palette, or type commands directly:
 | `/help` | Show keyboard shortcuts and commands |
 | `/clear` | Clear conversation and reset context |
 | `/save` | Save session to disk |
+| `/copy` | Copy active tab's response to clipboard |
+| `/share` | Copy all provider responses to clipboard as labeled markdown |
 | `/export [path]` | Export session as JSON |
 | `/mode <name>` | Switch mode: quick, balanced, thorough |
 | `/plan <request>` | Run multi-model agent team pipeline |

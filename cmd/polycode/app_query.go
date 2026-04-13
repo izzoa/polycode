@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"maps"
@@ -803,10 +804,40 @@ func wireQueryHandler(
 					trace.Skipped = fanOutResult.Skipped
 				}
 
+				// Build provider statuses from fan-out result.
+				// Start with all queried providers, then refine from result data.
+				provStatuses := make(map[string]string)
+				for _, p := range queryProviders {
+					provStatuses[p.ID()] = "done" // default for queried providers
+				}
+				if fanOutResult != nil {
+					for id, err := range fanOutResult.Errors {
+						if errors.Is(err, context.Canceled) {
+							provStatuses[id] = "cancelled"
+						} else if errors.Is(err, context.DeadlineExceeded) {
+							provStatuses[id] = "timed_out"
+						} else {
+							provStatuses[id] = "failed"
+						}
+					}
+					for _, id := range fanOutResult.Skipped {
+						provStatuses[id] = "idle"
+					}
+				}
+
+				// Capture provider order and primary at save time.
+				var provOrder []string
+				for _, p := range queryProviders {
+					provOrder = append(provOrder, p.ID())
+				}
+
 				session.Exchanges = append(session.Exchanges, config.SessionExchange{
 					Prompt:            prompt,
 					ConsensusResponse: fullResponse,
 					Individual:        individual,
+					ProviderStatuses:  provStatuses,
+					ProviderOrder:     provOrder,
+					PrimaryProvider:   s.primary.ID(),
 					ProviderTraces:    providerTraces,
 					Trace:             trace,
 				})

@@ -10,7 +10,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/izzoa/polycode/internal/agent"
@@ -507,23 +506,6 @@ func wireGeneralHandlers(
 				return
 			}
 			program.Send(tui.ConsensusChunkMsg{Delta: fmt.Sprintf("\n*Session exported to %s*\n", path), Done: true})
-		}()
-	})
-
-	model.SetShareSessionHandler(func() {
-		go func() {
-			program := *programRef
-			session, _ := config.LoadSession()
-			if session == nil {
-				program.Send(tui.ConsensusChunkMsg{Delta: "\n*No session to share.*\n", Done: true})
-				return
-			}
-			md := config.ExportSessionMarkdown(session)
-			if err := clipboard.WriteAll(md); err != nil {
-				program.Send(tui.ConsensusChunkMsg{Delta: "\n*Clipboard unavailable.*\n", Done: true})
-				return
-			}
-			program.Send(tui.ConsensusChunkMsg{Delta: "\n*Session copied to clipboard as markdown.*\n", Done: true})
 		}()
 	})
 

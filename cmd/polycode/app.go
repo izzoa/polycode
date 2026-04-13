@@ -328,6 +328,14 @@ func startTUI(cfg *config.Config) error {
 				Prompt:             ex.Prompt,
 				ConsensusResponse:  ex.ConsensusResponse,
 				IndividualResponse: ex.Individual,
+				ProviderOrder:      ex.ProviderOrder,
+				PrimaryProvider:    ex.PrimaryProvider,
+			}
+			if len(ex.ProviderStatuses) > 0 {
+				tuiEx.ProviderStatuses = make(map[string]tui.ProviderStatus, len(ex.ProviderStatuses))
+				for name, statusStr := range ex.ProviderStatuses {
+					tuiEx.ProviderStatuses[name] = tui.ParseProviderStatus(statusStr)
+				}
 			}
 			if len(ex.ProviderTraces) > 0 {
 				tuiEx.ProviderTraces = make(map[string][]tui.TraceSection)

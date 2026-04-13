@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.24.0] - 2026-04-13
+
+### Changed
+- **`/share` Redesign**: `/share` now copies all provider responses from the latest exchange as a single labeled markdown document instead of exporting the full session. Each provider is individually headed with role (Primary) and status annotations (Failed, Timed Out, Cancelled, In Progress). Includes the user's prompt at the top and the consensus response at the end. Non-routed providers (quick/balanced mode) are omitted automatically. The old full-session export remains available via `/export md`.
+
+### Added
+- **Provider Status Persistence**: Session exchanges now persist per-provider statuses (done, failed, timed_out, cancelled, idle), provider order, and primary provider name. Restored sessions accurately reflect provider outcomes instead of defaulting everything to success.
+
 ## [1.23.3] - 2026-04-03
 
 ### Fixed

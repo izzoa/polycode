@@ -51,6 +51,47 @@ const (
 	StatusTimedOut
 )
 
+// ProviderStatusString returns the string representation of a ProviderStatus.
+func ProviderStatusString(s ProviderStatus) string {
+	switch s {
+	case StatusIdle:
+		return "idle"
+	case StatusLoading:
+		return "loading"
+	case StatusDone:
+		return "done"
+	case StatusFailed:
+		return "failed"
+	case StatusTimedOut:
+		return "timed_out"
+	case StatusCancelled:
+		return "cancelled"
+	default:
+		return "unknown"
+	}
+}
+
+// ParseProviderStatus converts a string to a ProviderStatus.
+// Returns StatusDone for unrecognized strings (safe default for historical data).
+func ParseProviderStatus(s string) ProviderStatus {
+	switch s {
+	case "idle":
+		return StatusIdle
+	case "loading":
+		return StatusLoading
+	case "done":
+		return StatusDone
+	case "failed":
+		return StatusFailed
+	case "timed_out":
+		return StatusTimedOut
+	case "cancelled":
+		return StatusCancelled
+	default:
+		return StatusDone
+	}
+}
+
 // TraceSection holds accumulated content for one phase of provider activity.
 type TraceSection struct {
 	Phase   string // "fanout", "synthesis", "tool", "verify"
@@ -161,6 +202,8 @@ type Exchange struct {
 	IndividualResponse map[string]string            // provider name → response
 	ProviderStatuses   map[string]ProviderStatus     // provider name → final status
 	ProviderTraces     map[string][]TraceSection     // provider name → ordered trace sections
+	ProviderOrder      []string                      // provider names in panel order at time of exchange
+	PrimaryProvider    string                        // primary provider name at time of exchange
 	ToolCalls          []ToolCallRecord              // tool calls executed during this exchange
 	expandedTrace      bool                          // whether trace sections are expanded (default: collapsed after completion)
 	renderedResponse   string                        // cached glamour-rendered markdown (computed once)
@@ -392,7 +435,6 @@ type Model struct {
 	onSave          func()
 	onExport          func(path string)
 	onExportMarkdown  func()
-	onShareSession    func()
 	onCancelProvider  func(providerName string) // cancels a specific provider mid-query
 	onUndo           func()
 	onRedo           func()
@@ -547,7 +589,7 @@ func NewModel(providerNames []string, primaryName string, version string) Model 
 			{"/name <name>", "Name the current session", ""},
 			{"/plan <request>", "Run multi-model agent team", ""},
 			{"/save", "Save session to disk", ""},
-			{"/share", "Copy session as markdown to clipboard", ""},
+			{"/share", "Copy all provider responses to clipboard", ""},
 			{"/sessions", "Sessions: list, show, delete, name", ""},
 			{"/sessions list", "List all saved sessions", ""},
 			{"/sessions show <name>", "Show a saved session", ""},
@@ -775,11 +817,6 @@ func (m *Model) SetRedoHandler(handler func()) {
 // SetExportMarkdownHandler sets the callback for /export md.
 func (m *Model) SetExportMarkdownHandler(handler func()) {
 	m.onExportMarkdown = handler
-}
-
-// SetShareSessionHandler sets the callback for /share.
-func (m *Model) SetShareSessionHandler(handler func()) {
-	m.onShareSession = handler
 }
 
 // SetSessionName sets the display session name.

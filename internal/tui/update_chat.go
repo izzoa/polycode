@@ -836,8 +836,13 @@ func (m Model) updateChat(msg tea.KeyMsg) (Model, tea.Cmd) {
 				}
 				if prompt == "/share" {
 					m.textarea.Reset()
-					if m.onShareSession != nil {
-						m.onShareSession()
+					md := m.buildShareMarkdown()
+					if md == "" {
+						m.chatStatusMsg = "No exchange to share."
+					} else if err := copyToClipboard(md); err != nil {
+						m.chatStatusMsg = "Clipboard unavailable"
+					} else {
+						m.chatStatusMsg = "Exchange copied to clipboard"
 					}
 					return m, nil
 				}
